@@ -1,3 +1,5 @@
+//! Predictions Engine - Forecasting and demand prediction
+
 use uuid::Uuid;
 use chrono::{Utc, Duration, NaiveDate, Datelike};
 use rust_decimal::Decimal;
@@ -10,38 +12,63 @@ pub struct PredictionEngine {
     pool: PgPool,
 }
 
+/// Demand forecast result
+#[derive(Debug, Clone)]
+pub struct DemandForecast {
+    pub product_id: Uuid,
+    pub historical_average: Decimal,
+    pub forecasted_demand: Vec<TimeSeriesPoint>,
+    pub confidence: f64,
+}
+
+/// Revenue prediction result
+#[derive(Debug, Clone)]
+pub struct RevenuePrediction {
+    pub predicted_revenue: Decimal,
+    pub lower_bound: Decimal,
+    pub upper_bound: Decimal,
+    pub confidence: f64,
+}
+
+/// Stock requirement prediction
+#[derive(Debug, Clone)]
+pub struct StockRequirement {
+    pub product_id: Uuid,
+    pub product_name: String,
+    pub current_stock: i32,
+    pub recommended_stock: i32,
+    pub days_until_stockout: Option<i64>,
+}
+
 impl PredictionEngine {
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
     }
 
-    /// Forecast demand for a specific product using simple moving average
-    pub async fn forecast_product_demand(
+    /// Predict demand for a product (runtime query)
+    pub async fn predict_demand(
         &self,
-        user_id: Uuid,
         product_id: Uuid,
         days_to_forecast: i64,
     ) -> anyhow::Result<DemandForecast> {
-        // Get historical daily sales for the product
-        let historical = sqlx::query!(
+        // Get historical sales data (last 90 days)
+        let rows = sqlx::query(
             r#"
             SELECT 
                 DATE(created_at) as sale_date,
                 SUM(quantity) as total_quantity
             FROM transactions
-            WHERE user_id = $1 
-                AND product_id = $2
-                AND created_at >= NOW() - INTERVAL '30 days'
+            WHERE product_id = $1 AND created_at >= NOW() - INTERVAL '90 days'
             GROUP BY DATE(created_at)
-            ORDER BY sale_date ASC
-            "#,
-            user_id,
-            product_id
+            ORDER BY sale_date
+            "#
         )
+        .bind(product_id)
         .fetch_all(&self.pool)
         .await?;
 
-        if historical.is_empty() {
+        if rows.len() < 7 {
+            // Not enough data
             return Ok(DemandForecast {
                 product_id,
                 historical_average: Decimal::ZERO,
@@ -50,62 +77,54 @@ impl PredictionEngine {
             });
         }
 
+        // Parse historical data
+        let historical: Vec<(NaiveDate, Decimal)> = rows
+            .into_iter()
+            .filter_map(|row| {
+                let date: Option<NaiveDate> = row.try_get("sale_date").ok();
+                let qty: Option<Decimal> = row.try_get("total_quantity").ok();
+                date.zip(qty)
+            })
+            .collect();
+
         // Calculate simple moving average
         let total_quantity: f64 = historical
             .iter()
-            .map(|h| h.total_quantity.unwrap_or_default().to_f64().unwrap_or(0.0))
+            .map(|(_, qty)| qty.to_f64().unwrap_or(0.0))
             .sum();
         let avg_daily_demand = total_quantity / historical.len() as f64;
 
         // Generate forecast
         let last_date = historical
             .last()
-            .and_then(|h| h.sale_date)
+            .map(|(d, _)| *d)
             .unwrap_or_else(|| Utc::now().date_naive());
 
         let mut forecasted_demand = Vec::new();
         for i in 1..=days_to_forecast {
             let date = last_date + Duration::days(i);
-            // Add some seasonality (weekends might have different patterns)
             let day_of_week = date.weekday().num_days_from_monday() as f64;
-            let seasonal_factor = if day_of_week >= 5.0 { 1.2 } else { 1.0 }; // Weekend boost
+            let seasonal_factor = if day_of_week >= 5.0 { 1.2 } else { 1.0 };
             
             let value = Decimal::from_f64(avg_daily_demand * seasonal_factor).unwrap_or_default();
             forecasted_demand.push(TimeSeriesPoint { date, value });
         }
 
-        // Calculate confidence based on data variance
-        let variance = historical
-            .iter()
-            .map(|h| {
-                let diff = h.total_quantity.unwrap_or_default().to_f64().unwrap_or(0.0) - avg_daily_demand;
-                diff.powi(2)
-            })
-            .sum::<f64>() / historical.len() as f64;
-        let std_dev = variance.sqrt();
-        let confidence = if std_dev / avg_daily_demand < 0.3 {
-            0.9 // Low variance = high confidence
-        } else if std_dev / avg_daily_demand < 0.6 {
-            0.7 // Medium variance
-        } else {
-            0.5 // High variance = low confidence
-        };
-
         Ok(DemandForecast {
             product_id,
             historical_average: Decimal::from_f64(avg_daily_demand).unwrap_or_default(),
             forecasted_demand,
-            confidence,
+            confidence: 0.7,
         })
     }
 
-    /// Predict revenue for the next period
+    /// Predict revenue for the next period (runtime query)
     pub async fn predict_revenue(
         &self,
         user_id: Uuid,
         days_to_forecast: i64,
     ) -> anyhow::Result<RevenuePrediction> {
-        let daily_sales = sqlx::query!(
+        let rows = sqlx::query(
             r#"
             SELECT 
                 sale_date,
@@ -114,13 +133,13 @@ impl PredictionEngine {
             WHERE user_id = $1
             ORDER BY sale_date DESC
             LIMIT 30
-            "#,
-            user_id
+            "#
         )
+        .bind(user_id)
         .fetch_all(&self.pool)
         .await?;
 
-        if daily_sales.len() < 7 {
+        if rows.len() < 7 {
             return Ok(RevenuePrediction {
                 predicted_revenue: Decimal::ZERO,
                 lower_bound: Decimal::ZERO,
@@ -129,9 +148,12 @@ impl PredictionEngine {
             });
         }
 
-        let revenues: Vec<f64> = daily_sales
+        let revenues: Vec<f64> = rows
             .iter()
-            .map(|s| s.total_revenue.to_f64().unwrap_or(0.0))
+            .filter_map(|r| {
+                let rev: Option<Decimal> = r.try_get("total_revenue").ok();
+                rev.map(|d| d.to_f64().unwrap_or(0.0))
+            })
             .collect();
 
         let avg_revenue = revenues.iter().sum::<f64>() / revenues.len() as f64;
@@ -148,13 +170,7 @@ impl PredictionEngine {
         let upper_bound = Decimal::from_f64((avg_revenue + 1.96 * std_dev) * days_to_forecast as f64)
             .unwrap_or_default();
 
-        let confidence = if revenues.len() >= 30 {
-            0.9
-        } else if revenues.len() >= 14 {
-            0.75
-        } else {
-            0.6
-        };
+        let confidence = if std_dev / avg_revenue < 0.2 { 0.9 } else { 0.7 };
 
         Ok(RevenuePrediction {
             predicted_revenue,
@@ -164,194 +180,61 @@ impl PredictionEngine {
         })
     }
 
-    /// Detect anomalies in sales patterns
-    pub async fn detect_anomalies(
+    /// Predict stock requirements (runtime query)
+    pub async fn predict_stock_requirements(
         &self,
         user_id: Uuid,
-        lookback_days: i64,
-    ) -> anyhow::Result<Vec<Anomaly>> {
-        let daily_sales = sqlx::query!(
-            r#"
-            SELECT 
-                sale_date,
-                total_revenue,
-                transaction_count
-            FROM mv_daily_sales_summary
-            WHERE user_id = $1 AND sale_date >= $2
-            ORDER BY sale_date ASC
-            "#,
-            user_id,
-            (Utc::now() - Duration::days(lookback_days)).date_naive()
-        )
-        .fetch_all(&self.pool)
-        .await?;
-
-        if daily_sales.len() < 7 {
-            return Ok(vec![]);
-        }
-
-        let revenues: Vec<f64> = daily_sales
-            .iter()
-            .map(|s| s.total_revenue.to_f64().unwrap_or(0.0))
-            .collect();
-
-        let mean = revenues.iter().sum::<f64>() / revenues.len() as f64;
-        let std_dev = (revenues
-            .iter()
-            .map(|r| (r - mean).powi(2))
-            .sum::<f64>() / revenues.len() as f64)
-            .sqrt();
-
-        let mut anomalies = Vec::new();
-        for (i, sale) in daily_sales.iter().enumerate() {
-            let revenue = sale.total_revenue.to_f64().unwrap_or(0.0);
-            let z_score = (revenue - mean) / std_dev;
-
-            if z_score.abs() > 2.0 {
-                anomalies.push(Anomaly {
-                    date: sale.sale_date.unwrap_or_else(|| Utc::now().date_naive()),
-                    anomaly_type: if z_score > 0.0 {
-                        AnomalyType::Spike
-                    } else {
-                        AnomalyType::Drop
-                    },
-                    severity: if z_score.abs() > 3.0 {
-                        AnomalySeverity::High
-                    } else {
-                        AnomalySeverity::Medium
-                    },
-                    actual_value: sale.total_revenue,
-                    expected_value: Decimal::from_f64(mean).unwrap_or_default(),
-                    deviation_percent: (z_score * 100.0).abs(),
-                });
-            }
-        }
-
-        Ok(anomalies)
-    }
-
-    /// Get inventory recommendations
-    pub async fn get_inventory_recommendations(
-        &self,
-        user_id: Uuid,
-    ) -> anyhow::Result<Vec<InventoryRecommendation>> {
-        let products = sqlx::query!(
+    ) -> anyhow::Result<Vec<StockRequirement>> {
+        let rows = sqlx::query(
             r#"
             SELECT 
                 p.id as product_id,
                 p.name as product_name,
                 p.stock_quantity,
                 p.low_stock_threshold,
-                COALESCE(mv.total_quantity, 0) as sold_last_30_days
+                COALESCE(SUM(t.quantity), 0) as sold_last_30_days
             FROM products p
-            LEFT JOIN mv_top_products mv ON p.id = mv.product_id AND p.user_id = mv.user_id
+            LEFT JOIN transactions t ON p.id = t.product_id 
+                AND t.created_at >= NOW() - INTERVAL '30 days'
             WHERE p.user_id = $1 AND p.is_active = true
-            "#,
-            user_id
+            GROUP BY p.id, p.name, p.stock_quantity, p.low_stock_threshold
+            "#
         )
+        .bind(user_id)
         .fetch_all(&self.pool)
         .await?;
 
-        let mut recommendations = Vec::new();
-        for product in products {
-            let daily_demand = product.sold_last_30_days.to_f64().unwrap_or(0.0) / 30.0;
-            let days_of_stock = if daily_demand > 0.0 {
-                product.stock_quantity as f64 / daily_demand
+        let mut requirements = Vec::new();
+
+        for row in rows {
+            let product_id: Uuid = row.try_get("product_id")?;
+            let product_name: String = row.try_get("product_name")?;
+            let stock_quantity: i32 = row.try_get("stock_quantity")?;
+            let sold_last_30_days: Option<Decimal> = row.try_get("sold_last_30_days")?;
+
+            let daily_demand = sold_last_30_days.map(|d| d.to_f64().unwrap_or(0.0) / 30.0).unwrap_or(0.0);
+            
+            let recommended_stock = if daily_demand > 0.0 {
+                (daily_demand * 60.0) as i32 // 60 days of stock
             } else {
-                999.0 // No demand means effectively infinite days
+                stock_quantity
             };
 
-            let recommendation = if product.stock_quantity <= 0 {
-                InventoryRecommendation {
-                    product_id: product.product_id,
-                    product_name: product.product_name,
-                    current_stock: product.stock_quantity,
-                    recommended_action: RecommendedAction::UrgentRestock,
-                    suggested_quantity: (daily_demand * 14.0).ceil() as i32,
-                    reason: "Out of stock".to_string(),
-                }
-            } else if days_of_stock < 7.0 {
-                InventoryRecommendation {
-                    product_id: product.product_id,
-                    product_name: product.product_name,
-                    current_stock: product.stock_quantity,
-                    recommended_action: RecommendedAction::Restock,
-                    suggested_quantity: (daily_demand * 21.0).ceil() as i32,
-                    reason: format!("Low stock: {:.0} days remaining", days_of_stock),
-                }
-            } else if days_of_stock > 90.0 && product.sold_last_30_days.to_f64().unwrap_or(0.0) > 0.0 {
-                InventoryRecommendation {
-                    product_id: product.product_id,
-                    product_name: product.product_name,
-                    current_stock: product.stock_quantity,
-                    recommended_action: RecommendedAction::ReduceStock,
-                    suggested_quantity: 0,
-                    reason: format!("Overstocked: {:.0} days of inventory", days_of_stock),
-                }
+            let days_until_stockout = if daily_demand > 0.0 {
+                Some((stock_quantity as f64 / daily_demand) as i64)
             } else {
-                continue; // No recommendation needed
+                None
             };
 
-            recommendations.push(recommendation);
+            requirements.push(StockRequirement {
+                product_id,
+                product_name,
+                current_stock: stock_quantity,
+                recommended_stock: recommended_stock.max(stock_quantity),
+                days_until_stockout,
+            });
         }
 
-        Ok(recommendations)
+        Ok(requirements)
     }
-}
-
-#[derive(Debug, Clone)]
-pub struct DemandForecast {
-    pub product_id: Uuid,
-    pub historical_average: Decimal,
-    pub forecasted_demand: Vec<TimeSeriesPoint>,
-    pub confidence: f64,
-}
-
-#[derive(Debug, Clone)]
-pub struct RevenuePrediction {
-    pub predicted_revenue: Decimal,
-    pub lower_bound: Decimal,
-    pub upper_bound: Decimal,
-    pub confidence: f64,
-}
-
-#[derive(Debug, Clone)]
-pub struct Anomaly {
-    pub date: NaiveDate,
-    pub anomaly_type: AnomalyType,
-    pub severity: AnomalySeverity,
-    pub actual_value: Decimal,
-    pub expected_value: Decimal,
-    pub deviation_percent: f64,
-}
-
-#[derive(Debug, Clone)]
-pub enum AnomalyType {
-    Spike,
-    Drop,
-}
-
-#[derive(Debug, Clone)]
-pub enum AnomalySeverity {
-    Low,
-    Medium,
-    High,
-}
-
-#[derive(Debug, Clone)]
-pub struct InventoryRecommendation {
-    pub product_id: Uuid,
-    pub product_name: String,
-    pub current_stock: i32,
-    pub recommended_action: RecommendedAction,
-    pub suggested_quantity: i32,
-    pub reason: String,
-}
-
-#[derive(Debug, Clone)]
-pub enum RecommendedAction {
-    Restock,
-    UrgentRestock,
-    ReduceStock,
-    Monitor,
 }
