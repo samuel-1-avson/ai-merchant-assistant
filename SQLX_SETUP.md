@@ -1,62 +1,46 @@
-# SQLx Offline Mode Setup
+# SQLx Setup Guide
 
-## The Problem
+## Overview
 
-SQLx performs compile-time query checking against a live database. In Docker builds, the database isn't accessible during compilation, so we need to use **offline mode**.
+This project uses SQLx for compile-time checked SQL queries. This means the database must be accessible during compilation.
 
-## Solution: Generate Offline Query Data
+## How It Works
 
-### Prerequisites
+The Docker build now passes `DATABASE_URL` as a build argument, so SQLx can connect to your Supabase database during the build process.
 
-1. Rust toolchain installed locally
-2. Database accessible (Supabase connection)
-3. Database schema already created in Supabase
+## Prerequisites
 
-### Step 1: Install sqlx-cli
+1. Database schema created in Supabase (run `supabase_schema.sql`)
+2. `DATABASE_URL` set in `.env` file
+3. Your machine can access the internet (to reach Supabase)
 
-```powershell
-cargo install sqlx-cli
-```
+## Build Instructions
 
-### Step 2: Set Environment Variable
-
-```powershell
-$env:DATABASE_URL="postgresql://postgres.mufjqnudxzkaandzohbj:Deanhall360@@@aws-1-eu-west-1.pooler.supabase.com:6543/postgres"
-```
-
-### Step 3: Generate Offline Data
-
-```powershell
-cd backend
-cargo sqlx prepare
-cd ..
-```
-
-This creates a `.sqlx/` folder with query metadata.
-
-### Step 4: Build Docker
+### Option 1: Build with Docker (Recommended)
 
 ```bash
 docker-compose up --build
 ```
 
----
+The `docker-compose.yml` passes the `DATABASE_URL` to the build process automatically.
 
-## Alternative: Quick Fix (Skip Compile-Time Checks)
+### Option 2: Test Compilation Locally
 
-If you want to skip SQLx compile-time checks entirely:
+```powershell
+# Set environment variable
+$env:DATABASE_URL="postgresql://postgres.mufjqnudxzkaandzohbj:Deanhall360@@@aws-1-eu-west-1.pooler.supabase.com:6543/postgres"
 
-### Option A: Use Runtime Queries (Modify Code)
+# Run the preparation script
+.\prepare_sqlx.ps1
+```
 
-Change `sqlx::query!` to `sqlx::query` and `sqlx::query_as!` to `sqlx::query_as` in the source files. This removes compile-time checking.
+Or manually:
 
-### Option B: Use Build Args with Database URL
-
-The Dockerfile already supports passing DATABASE_URL:
-
-```bash
-docker-compose build --build-arg DATABASE_URL=$env:DATABASE_URL
-docker-compose up
+```powershell
+cd backend
+cargo update
+cargo check
+cd ..
 ```
 
 ---
@@ -64,26 +48,40 @@ docker-compose up
 ## Troubleshooting
 
 ### "database does not exist" Error
-Make sure you've run the schema SQL in Supabase first.
-
-### "permission denied" Error
-Check that your Supabase service_role key has the necessary permissions.
+Make sure you've run the schema SQL in Supabase SQL Editor first.
 
 ### Connection Timeout
-The Supabase connection pooler may take time to warm up. Try again.
+- Supabase connection pooler may take time to warm up
+- Check your internet connection
+- Verify the database password is correct
+
+### "failed to select a version for sqlx"
+Run `cargo update` to refresh dependencies:
+```bash
+cd backend
+cargo update
+```
 
 ---
 
-## Automated Script
+## Architecture
 
-Run the provided PowerShell script:
-
-```powershell
-.\prepare_sqlx.ps1
+```
+Docker Build
+    │
+    ├─► Pass DATABASE_URL as build arg
+    │
+    ├─► Rust compiles with SQLx
+    │   └─► SQLx connects to Supabase
+    │   └─► Validates queries at compile time
+    │
+    └─► Creates optimized binary
 ```
 
-This will:
-1. Load DATABASE_URL from .env
-2. Install sqlx-cli if needed
-3. Run `cargo sqlx prepare`
-4. Generate the .sqlx folder
+---
+
+## Security Notes
+
+- The `DATABASE_URL` is only used during build, not included in final image
+- Service credentials are passed via environment variables at runtime
+- Never commit `.env` file to Git

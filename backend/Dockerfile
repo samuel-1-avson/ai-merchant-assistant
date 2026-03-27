@@ -6,8 +6,9 @@ WORKDIR /app
 COPY Cargo.toml Cargo.lock ./
 COPY src ./src
 
-# SQLx offline mode - uses .sqlx folder instead of live database
-ENV SQLX_OFFLINE=true
+# Database URL for compile-time query checking
+ARG DATABASE_URL
+ENV DATABASE_URL=${DATABASE_URL}
 
 RUN cargo build --release
 
