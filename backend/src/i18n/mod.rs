@@ -1,5 +1,3 @@
-pub mod translations;
-
 use std::collections::HashMap;
 use once_cell::sync::Lazy;
 

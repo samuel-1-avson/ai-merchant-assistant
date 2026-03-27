@@ -119,7 +119,7 @@ impl ProphetModel {
             forecast: forecast_values,
             lower_bound: lower_bounds,
             upper_bound: upper_bounds,
-            trend: vec![trend.slope * i as f64 + trend.intercept for i in 0..periods as usize],
+            trend: (0..periods as usize).map(|i| trend.slope * i as f64 + trend.intercept).collect(),
             weekly: (0..periods).map(|i| {
                 self.get_weekly_effect(last_date + Duration::days(i + 1), &weekly_effect)
             }).collect(),

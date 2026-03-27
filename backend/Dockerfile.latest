@@ -1,16 +1,11 @@
-FROM rust:1.89-slim AS builder
+# Alternative Dockerfile using latest Rust version
+FROM rust:latest AS builder
 
 RUN apt-get update && apt-get install -y pkg-config libssl-dev && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 COPY Cargo.toml Cargo.lock ./
 COPY src ./src
-
-# Copy SQLx offline data if available
-COPY .sqlx ./.sqlx 2>/dev/null || true
-
-ARG DATABASE_URL
-ENV DATABASE_URL=${DATABASE_URL}
 
 RUN cargo build --release
 
