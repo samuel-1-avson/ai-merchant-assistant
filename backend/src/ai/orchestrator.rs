@@ -3,7 +3,7 @@ use tokio::sync::RwLock;
 use uuid::Uuid;
 use tracing::{info, error};
 
-use crate::ai::clients::{CloudSTTClient, CloudLLMClient, CloudTTSClient};
+use crate::ai::clients::{CloudSTTClient, CloudLLMClient, CloudTTSClient, TranscriptionResult};
 use crate::ai::agents::{stt_agent::STTAgent, nlu_agent::NLUAgent, transaction_agent::TransactionAgent, tts_agent::TTSAgent};
 use crate::models::transaction::{VoiceTransactionResponse, ExtractedEntities};
 use crate::db::repositories::transaction_repo::TransactionRepository;
@@ -179,4 +179,61 @@ impl AIOrchestrator {
     pub async fn get_context(&self) -> ConversationContext {
         self.context.read().await.clone()
     }
+
+    /// Transcribe audio to text (direct access to STT)
+    pub async fn transcribe_audio(&self, audio_bytes: Vec<u8>) -> anyhow::Result<TranscriptionResult> {
+        self.stt_agent.transcribe(audio_bytes).await
+    }
+
+    /// Process receipt image using OCR
+    /// TODO: Implement real OCR processing
+    pub async fn process_receipt_image(&self, _image_data: &[u8]) -> anyhow::Result<ReceiptProcessingResult> {
+        // For now, return a placeholder - should use OCR to extract receipt data
+        Ok(ReceiptProcessingResult {
+            merchant_name: None,
+            date: None,
+            items: vec![],
+            total: None,
+            raw_text: "OCR not yet implemented".to_string(),
+        })
+    }
+
+    /// Scan product image using computer vision
+    /// TODO: Implement real product recognition
+    pub async fn scan_product_image(&self, _image_data: &[u8]) -> anyhow::Result<ProductScanResult> {
+        // For now, return a placeholder - should use CV to identify product
+        Ok(ProductScanResult {
+            product_name: None,
+            confidence: 0.0,
+            suggested_category: None,
+            raw_text: "Product recognition not yet implemented".to_string(),
+        })
+    }
+}
+
+/// Result of receipt processing
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ReceiptProcessingResult {
+    pub merchant_name: Option<String>,
+    pub date: Option<String>,
+    pub items: Vec<ReceiptItem>,
+    pub total: Option<f64>,
+    pub raw_text: String,
+}
+
+/// Individual item from receipt
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ReceiptItem {
+    pub name: String,
+    pub quantity: f64,
+    pub price: f64,
+}
+
+/// Result of product scanning
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ProductScanResult {
+    pub product_name: Option<String>,
+    pub confidence: f64,
+    pub suggested_category: Option<String>,
+    pub raw_text: String,
 }

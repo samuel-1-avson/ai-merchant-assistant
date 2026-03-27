@@ -8,6 +8,10 @@ pub struct User {
     pub email: String,
     pub full_name: Option<String>,
     pub business_name: Option<String>,
+    pub password_hash: Option<String>, // Optional for OAuth users
+    pub google_id: Option<String>,
+    pub github_id: Option<String>,
+    pub email_verified: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -15,9 +19,12 @@ pub struct User {
 #[derive(Debug, Clone, Deserialize)]
 pub struct CreateUserRequest {
     pub email: String,
-    pub password: String,
+    pub password: Option<String>, // Optional for OAuth users
     pub full_name: Option<String>,
     pub business_name: Option<String>,
+    pub google_id: Option<String>,
+    pub github_id: Option<String>,
+    pub email_verified: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]

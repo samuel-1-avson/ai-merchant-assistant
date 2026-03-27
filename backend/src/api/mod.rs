@@ -1,5 +1,6 @@
 pub mod routes;
 pub mod middleware;
+pub mod state;
 
 use axum::{
     response::{IntoResponse, Response},

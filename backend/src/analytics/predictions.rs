@@ -1,7 +1,8 @@
 //! Predictions Engine - Forecasting and demand prediction
 
 use uuid::Uuid;
-use chrono::{Utc, Duration, NaiveDate, Datelike};
+use chrono::{Utc, Duration, NaiveDate};
+use chrono::Datelike;
 use rust_decimal::Decimal;
 use rust_decimal::prelude::{FromPrimitive, ToPrimitive};
 use sqlx::{PgPool, Row};
@@ -77,12 +78,13 @@ impl PredictionEngine {
             });
         }
 
-        // Parse historical data
+        // Parse historical data - fetch as f64 then convert to Decimal
         let historical: Vec<(NaiveDate, Decimal)> = rows
             .into_iter()
             .filter_map(|row| {
                 let date: Option<NaiveDate> = row.try_get("sale_date").ok();
-                let qty: Option<Decimal> = row.try_get("total_quantity").ok();
+                let qty_f64: Option<f64> = row.try_get("total_quantity").ok();
+                let qty = qty_f64.and_then(Decimal::from_f64);
                 date.zip(qty)
             })
             .collect();
@@ -148,11 +150,11 @@ impl PredictionEngine {
             });
         }
 
+        // Fetch as f64 then convert
         let revenues: Vec<f64> = rows
             .iter()
             .filter_map(|r| {
-                let rev: Option<Decimal> = r.try_get("total_revenue").ok();
-                rev.map(|d| d.to_f64().unwrap_or(0.0))
+                r.try_get::<f64, _>("total_revenue").ok()
             })
             .collect();
 
@@ -210,7 +212,9 @@ impl PredictionEngine {
             let product_id: Uuid = row.try_get("product_id")?;
             let product_name: String = row.try_get("product_name")?;
             let stock_quantity: i32 = row.try_get("stock_quantity")?;
-            let sold_last_30_days: Option<Decimal> = row.try_get("sold_last_30_days")?;
+            // Fetch as f64 then convert
+            let sold_last_30_days_f64: Option<f64> = row.try_get("sold_last_30_days")?;
+            let sold_last_30_days = sold_last_30_days_f64.and_then(Decimal::from_f64);
 
             let daily_demand = sold_last_30_days.map(|d| d.to_f64().unwrap_or(0.0) / 30.0).unwrap_or(0.0);
             
@@ -236,5 +240,86 @@ impl PredictionEngine {
         }
 
         Ok(requirements)
+    }
+}
+
+/// Simple forecaster for basic trend-based forecasting
+pub struct SimpleForecaster;
+
+/// Revenue forecast result
+#[derive(Debug, Clone)]
+pub struct RevenueForecast {
+    pub predicted: f64,
+    pub lower_bound: f64,
+    pub upper_bound: f64,
+    pub confidence: f64,
+    pub daily_values: Vec<serde_json::Value>,
+}
+
+impl SimpleForecaster {
+    pub fn new() -> Self {
+        Self
+    }
+
+    /// Forecast based on historical daily data
+    pub fn forecast(
+        &self,
+        historical: &[(NaiveDate, f64)],
+        days: i64,
+    ) -> Vec<serde_json::Value> {
+        if historical.is_empty() {
+            return vec![];
+        }
+
+        let avg: f64 = historical.iter().map(|(_, v)| v).sum::<f64>() / historical.len() as f64;
+        
+        let last_date = historical.last().map(|(d, _)| *d).unwrap_or_else(|| Utc::now().date_naive());
+
+        (1..=days)
+            .map(|i| {
+                let date = last_date + Duration::days(i);
+                serde_json::json!({
+                    "date": date.to_string(),
+                    "value": avg
+                })
+            })
+            .collect()
+    }
+
+    /// Forecast total revenue
+    pub fn forecast_revenue(
+        &self,
+        historical: &[(NaiveDate, f64)],
+        days: i64,
+    ) -> RevenueForecast {
+        if historical.is_empty() {
+            return RevenueForecast {
+                predicted: 0.0,
+                lower_bound: 0.0,
+                upper_bound: 0.0,
+                confidence: 0.0,
+                daily_values: vec![],
+            };
+        }
+
+        let values: Vec<f64> = historical.iter().map(|(_, v)| *v).collect();
+        let avg = values.iter().sum::<f64>() / values.len() as f64;
+        let variance = values.iter().map(|v| (v - avg).powi(2)).sum::<f64>() / values.len() as f64;
+        let std_dev = variance.sqrt();
+
+        let predicted = avg * days as f64;
+        let lower_bound = (avg - 1.96 * std_dev).max(0.0) * days as f64;
+        let upper_bound = (avg + 1.96 * std_dev) * days as f64;
+        let confidence = if std_dev / avg < 0.3 { 0.85 } else { 0.65 };
+
+        let daily_values = self.forecast(historical, days);
+
+        RevenueForecast {
+            predicted,
+            lower_bound,
+            upper_bound,
+            confidence,
+            daily_values,
+        }
     }
 }

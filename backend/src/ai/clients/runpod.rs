@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 use reqwest::Client;
 use serde_json::json;
+use base64::Engine;
 
 use super::{CloudSTTClient, CloudLLMClient, TranscriptionResult, AIError};
 
@@ -28,7 +29,7 @@ impl CloudSTTClient for RunPodClient {
             .header("Authorization", format!("Bearer {}", self.api_key))
             .json(&json!({
                 "input": {
-                    "audio": base64::encode(&audio_bytes),
+                    "audio": base64::engine::general_purpose::STANDARD.encode(&audio_bytes),
                     "task": "transcribe"
                 }
             }))

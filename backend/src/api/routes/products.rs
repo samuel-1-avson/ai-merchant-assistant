@@ -1,5 +1,5 @@
 use axum::{
-    extract::State,
+    extract::{State, Query},
     Json,
     http::StatusCode,
 };
@@ -8,59 +8,113 @@ use serde_json::{json, Value};
 use uuid::Uuid;
 
 use crate::models::product::CreateProductRequest;
-use crate::AppState;
+use crate::api::state::AppState;
+use crate::utils::errors::ApiError;
 
+#[derive(Debug, serde::Deserialize)]
+pub struct ListProductsQuery {
+    pub search: Option<String>,
+}
+
+/// List all products for the authenticated user
 pub async fn list(
     State(state): State<Arc<AppState>>,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    // Mock response
-    let products = json!([
-        {
-            "id": "123e4567-e89b-12d3-a456-426614174010",
-            "name": "Eggs",
-            "description": "Fresh farm eggs",
-            "default_price": 10.00,
-            "unit": "crate",
-            "stock_quantity": 50,
-            "low_stock_threshold": 10,
-        },
-        {
-            "id": "123e4567-e89b-12d3-a456-426614174011",
-            "name": "Milk",
-            "description": "Whole milk",
-            "default_price": 3.50,
-            "unit": "liter",
-            "stock_quantity": 100,
-            "low_stock_threshold": 20,
-        }
-    ]);
+    Query(query): Query<ListProductsQuery>,
+) -> Result<Json<Value>, ApiError> {
+    // TODO: Get actual user_id from JWT token after auth is implemented
+    let user_id = Uuid::parse_str("00000000-0000-0000-0000-000000000001")
+        .map_err(|_| ApiError::Unauthorized("Invalid user".to_string()))?;
+
+    let products = if let Some(search_term) = query.search {
+        // Search products by name
+        state
+            .product_service
+            .search_by_name(user_id, &search_term)
+            .await
+            .map_err(|e| ApiError::DatabaseError(e.to_string()))?
+    } else {
+        // List all products
+        state
+            .product_service
+            .list_products(user_id)
+            .await
+            .map_err(|e| ApiError::DatabaseError(e.to_string()))?
+    };
 
     Ok(Json(json!({
         "success": true,
-        "data": products
+        "data": products,
+        "meta": {
+            "count": products.len()
+        }
     })))
 }
 
+/// Create a new product
 pub async fn create(
     State(state): State<Arc<AppState>>,
     Json(request): Json<CreateProductRequest>,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let product = json!({
-        "id": Uuid::new_v4().to_string(),
-        "name": request.name,
-        "description": request.description,
-        "sku": request.sku,
-        "default_price": request.default_price,
-        "cost_price": request.cost_price,
-        "unit": request.unit.unwrap_or_else(|| "piece".to_string()),
-        "stock_quantity": request.stock_quantity.unwrap_or(0),
-        "low_stock_threshold": request.low_stock_threshold.unwrap_or(10),
-        "is_active": true,
-        "created_at": chrono::Utc::now().to_rfc3339(),
-    });
+) -> Result<Json<Value>, ApiError> {
+    // TODO: Get actual user_id from JWT token
+    let user_id = Uuid::parse_str("00000000-0000-0000-0000-000000000001")
+        .map_err(|_| ApiError::Unauthorized("Invalid user".to_string()))?;
+
+    // Validate request
+    if request.name.trim().is_empty() {
+        return Err(ApiError::ValidationError("Product name is required".to_string()));
+    }
+
+    // Check for duplicate product name
+    if let Some(existing) = state
+        .product_service
+        .find_by_name(user_id, &request.name)
+        .await
+        .map_err(|e| ApiError::DatabaseError(e.to_string()))?
+    {
+        return Err(ApiError::ValidationError(
+            format!("Product '{}' already exists", existing.name)
+        ));
+    }
+
+    let product = state
+        .product_service
+        .create_product(user_id, request)
+        .await
+        .map_err(|e| ApiError::DatabaseError(e.to_string()))?;
 
     Ok(Json(json!({
         "success": true,
-        "data": product
+        "data": product,
+        "message": "Product created successfully"
+    })))
+}
+
+/// Search products by name (alias for list with search parameter)
+pub async fn search(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<ListProductsQuery>,
+) -> Result<Json<Value>, ApiError> {
+    // Reuse the list function logic
+    list(State(state), Query(query)).await
+}
+
+/// Get product suggestions for voice input (fuzzy matching)
+pub async fn suggestions(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<super::voice::ProductSuggestionQuery>,
+) -> Result<Json<Value>, ApiError> {
+    // TODO: Get actual user_id from JWT token
+    let user_id = Uuid::parse_str("00000000-0000-0000-0000-000000000001")
+        .map_err(|_| ApiError::Unauthorized("Invalid user".to_string()))?;
+
+    let suggestions = state
+        .product_service
+        .search_by_name(user_id, &query.q)
+        .await
+        .map_err(|e| ApiError::DatabaseError(e.to_string()))?;
+
+    Ok(Json(json!({
+        "success": true,
+        "data": suggestions
     })))
 }

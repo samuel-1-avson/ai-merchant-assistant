@@ -33,7 +33,12 @@ use crate::config::AppConfig;
 use crate::db::Database;
 use crate::db::repositories::transaction_repo::TransactionRepository;
 use crate::db::repositories::product_repo::ProductRepository;
-use crate::AppState;
+use crate::db::repositories::user_repo::UserRepository;
+use crate::api::state::AppState;
+use crate::services::transaction_service::TransactionService;
+use crate::services::product_service::ProductService;
+use crate::services::user_service::UserService;
+use crate::services::analytics_service::AnalyticsService;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -69,14 +74,15 @@ async fn main() -> anyhow::Result<()> {
     // Initialize repositories
     let transaction_repo = Arc::new(TransactionRepository::new(db.pool.clone()));
     let product_repo = Arc::new(ProductRepository::new(db.pool.clone()));
+    let user_repo = Arc::new(UserRepository::new(db.pool.clone()));
 
     // Initialize AI Orchestrator
     let ai_orchestrator = Arc::new(AIOrchestrator::new(
         Arc::from(stt_client),
         Arc::from(llm_client),
         Arc::from(tts_client),
-        transaction_repo,
-        product_repo,
+        transaction_repo.clone(),
+        product_repo.clone(),
     ));
     info!("✅ AI Orchestrator initialized");
 
@@ -84,12 +90,23 @@ async fn main() -> anyhow::Result<()> {
     let notification_hub = Arc::new(NotificationHub::new());
     info!("✅ Notification Hub initialized");
 
+    // Initialize Services
+    let transaction_service = Arc::new(TransactionService::new(transaction_repo));
+    let product_service = Arc::new(ProductService::new(product_repo));
+    let user_service = Arc::new(UserService::new(user_repo));
+    let analytics_service = Arc::new(AnalyticsService::new(db.pool.clone()));
+    info!("✅ Services initialized");
+
     // Create shared state
     let state = Arc::new(AppState {
         config,
         db,
         ai_orchestrator,
         notification_hub: Some(notification_hub),
+        transaction_service,
+        product_service,
+        user_service,
+        analytics_service,
     });
 
     // Configure CORS
@@ -106,6 +123,8 @@ async fn main() -> anyhow::Result<()> {
         // Authentication
         .route("/api/v1/auth/register", post(api::routes::auth::register))
         .route("/api/v1/auth/login", post(api::routes::auth::login))
+        .route("/api/v1/auth/google", post(api::routes::oauth::google_auth))
+        .route("/api/v1/auth/github", post(api::routes::oauth::github_auth))
         
         // Transactions
         .route("/api/v1/transactions", get(api::routes::transactions::list).post(api::routes::transactions::create))

@@ -14,11 +14,9 @@ impl Database {
             .connect(database_url)
             .await?;
 
-        // Run migrations
-        sqlx::migrate!("./src/db/migrations")
-            .run(&pool)
-            .await?;
-
+        // Note: Migrations are disabled. Schema is managed via Supabase Dashboard.
+        // Run supabase_schema.sql in the Supabase SQL Editor to set up the schema.
+        
         Ok(Self { pool })
     }
 }

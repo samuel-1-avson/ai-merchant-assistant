@@ -6,7 +6,7 @@ use axum::{
 use std::sync::Arc;
 use serde_json::{json, Value};
 
-use crate::AppState;
+use crate::api::state::AppState;
 use crate::i18n::{Language, I18n};
 
 #[derive(Debug, serde::Deserialize)]

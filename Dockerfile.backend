@@ -2,7 +2,7 @@
 # Multi-stage build for optimized production image
 
 # Stage 1: Builder
-FROM rust:1.75-slim as builder
+FROM rust:latest as builder
 
 WORKDIR /app
 
@@ -16,15 +16,20 @@ RUN apt-get update && apt-get install -y \
 # Copy Cargo files first for better caching
 COPY backend/Cargo.toml backend/Cargo.lock ./
 
+# Copy SQLx offline query data (optional - for compile-time query validation)
+# COPY backend/sqlx-data.json ./sqlx-data.json
+
 # Create dummy main.rs to build dependencies
-RUN mkdir src && echo "fn main() {}" > src/main.rs
+RUN mkdir src && echo "fn main() {println!(\"dummy\")}" > src/main.rs
+ENV SQLX_OFFLINE=true
 RUN cargo build --release && rm -rf src
 
 # Copy actual source code
 COPY backend/src ./src
 
-# Build the application
+# Build the application with SQLX_OFFLINE mode
 RUN touch src/main.rs
+ENV SQLX_OFFLINE=true
 RUN cargo build --release
 
 # Stage 2: Runtime

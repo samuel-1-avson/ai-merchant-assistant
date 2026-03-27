@@ -7,7 +7,7 @@ use rust_decimal::Decimal;
 use rust_decimal::prelude::{FromPrimitive, ToPrimitive};
 
 use crate::models::analytics::{AnalyticsSummary, TopProduct, DailySale, SalesTrend};
-use crate::analytics::TrendDirection;
+use crate::models::analytics::TrendDirection;
 
 pub struct AnalyticsEngine {
     pool: PgPool,
@@ -22,7 +22,7 @@ impl AnalyticsEngine {
     pub async fn get_summary(&self, user_id: Uuid, days: i64) -> anyhow::Result<AnalyticsSummary> {
         let start_date = Utc::now() - Duration::days(days);
 
-        // Get summary using runtime query
+        // Get summary using runtime query - fetch as f64 then convert to Decimal
         let row = sqlx::query(
             r#"
             SELECT 
@@ -38,9 +38,9 @@ impl AnalyticsEngine {
         .fetch_one(&self.pool)
         .await?;
 
-        let total_revenue: Decimal = row.try_get("total_revenue")?;
-        let total_transactions: i64 = row.try_get("total_transactions")?;
-        let total_items_sold: Decimal = row.try_get("total_items_sold")?;
+        let total_revenue = Decimal::from_f64(row.try_get::<f64, _>("total_revenue")?).unwrap_or_default();
+        let total_transactions = row.try_get::<i64, _>("total_transactions")?;
+        let total_items_sold = Decimal::from_f64(row.try_get::<f64, _>("total_items_sold")?).unwrap_or_default();
 
         let avg_transaction_value = if total_transactions > 0 {
             total_revenue / Decimal::from(total_transactions)
@@ -93,8 +93,8 @@ impl AnalyticsEngine {
             TopProduct {
                 product_id: row.try_get("product_id").unwrap_or_default(),
                 product_name: row.try_get("product_name").unwrap_or_default(),
-                total_quantity: row.try_get("total_quantity").unwrap_or_default(),
-                total_revenue: row.try_get("total_revenue").unwrap_or_default(),
+                total_quantity: Decimal::from_f64(row.try_get::<f64, _>("total_quantity").unwrap_or(0.0)).unwrap_or_default(),
+                total_revenue: Decimal::from_f64(row.try_get::<f64, _>("total_revenue").unwrap_or(0.0)).unwrap_or_default(),
                 times_sold: row.try_get("times_sold").unwrap_or(0),
             }
         }).collect();
@@ -129,7 +129,7 @@ impl AnalyticsEngine {
         let sales = rows.into_iter().map(|row| {
             DailySale {
                 date: row.try_get("sale_date").unwrap_or_default(),
-                revenue: row.try_get("total_revenue").unwrap_or_default(),
+                revenue: Decimal::from_f64(row.try_get::<f64, _>("total_revenue").unwrap_or(0.0)).unwrap_or_default(),
                 transaction_count: row.try_get("transaction_count").unwrap_or(0),
             }
         }).collect();

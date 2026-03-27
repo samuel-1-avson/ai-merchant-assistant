@@ -1,4 +1,5 @@
 pub mod auth;
+pub mod oauth;
 pub mod transactions;
 pub mod products;
 pub mod analytics;

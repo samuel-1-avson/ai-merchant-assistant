@@ -1,6 +1,7 @@
 use jsonwebtoken::{encode, EncodingKey, Header, Algorithm};
 use serde::{Deserialize, Serialize};
 use chrono::{Utc, Duration};
+use uuid::Uuid;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Claims {
@@ -35,4 +36,13 @@ impl JwtGenerator {
         let token = encode(&Header::default(), &claims, &self.encoding_key)?;
         Ok(token)
     }
+}
+
+/// Standalone function to generate JWT token using environment secret
+pub fn generate_token(user_id: Uuid, email: &str) -> anyhow::Result<String> {
+    let secret = std::env::var("JWT_SECRET")
+        .unwrap_or_else(|_| "default_secret_key_change_in_production".to_string());
+    
+    let generator = JwtGenerator::new(&secret);
+    generator.generate(&user_id.to_string(), email)
 }

@@ -2,6 +2,7 @@
 //! Inspired by Facebook Prophet's additive regression model
 
 use chrono::{NaiveDate, Duration};
+use chrono::Datelike;
 use rust_decimal::Decimal;
 use rust_decimal::prelude::FromPrimitive;
 use uuid::Uuid;
