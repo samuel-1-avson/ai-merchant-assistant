@@ -2,10 +2,7 @@ version: '3.8'
 
 services:
   backend:
-    build:
-      context: ./backend
-      args:
-        - DATABASE_URL=${DATABASE_URL}
+    build: ./backend
     ports:
       - "3000:3000"
     environment:

@@ -22,7 +22,7 @@ if (-not $env:DATABASE_URL) {
 
 if (-not $env:DATABASE_URL) {
     Write-Host "ERROR: DATABASE_URL environment variable is not set!" -ForegroundColor Red
-    Write-Host "Please set it first: $env:DATABASE_URL='your-connection-string'" -ForegroundColor Yellow
+    Write-Host "Please set it first: `$env:DATABASE_URL='your-connection-string'" -ForegroundColor Yellow
     exit 1
 }
 
@@ -31,12 +31,16 @@ Write-Host "Using DATABASE_URL: $($env:DATABASE_URL.Substring(0, 50))..." -Foreg
 # Navigate to backend directory
 cd backend
 
+# Update dependencies first
+Write-Host "`nUpdating dependencies..." -ForegroundColor Yellow
+cargo update
+
 # Install sqlx-cli if not already installed
 Write-Host "`nChecking sqlx-cli..." -ForegroundColor Yellow
 $cargoInstall = cargo install --list | Select-String "sqlx-cli"
 if (-not $cargoInstall) {
     Write-Host "Installing sqlx-cli..." -ForegroundColor Yellow
-    cargo install sqlx-cli
+    cargo install sqlx-cli --no-default-features --features native-tls,postgres
 }
 
 # Run cargo sqlx prepare
@@ -54,6 +58,7 @@ if ($LASTEXITCODE -eq 0) {
     Write-Host "  1. Your database is accessible from this machine" -ForegroundColor Yellow
     Write-Host "  2. DATABASE_URL is correct" -ForegroundColor Yellow
     Write-Host "  3. Database schema is set up (run supabase_schema.sql)" -ForegroundColor Yellow
+    Write-Host "  4. Try running: cargo update" -ForegroundColor Yellow
 }
 
 cd ..
