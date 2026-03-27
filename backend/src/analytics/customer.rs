@@ -2,7 +2,7 @@
 
 use chrono::{NaiveDate, Duration};
 use rust_decimal::Decimal;
-use rust_decimal::prelude::FromPrimitive;
+use rust_decimal::prelude::{FromPrimitive, ToPrimitive};
 use uuid::Uuid;
 use std::collections::HashMap;
 

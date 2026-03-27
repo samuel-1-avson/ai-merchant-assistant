@@ -4,13 +4,15 @@ use tower_http::cors::CorsLayer;
 use axum::http::HeaderValue;
 
 pub fn production_cors() -> CorsLayer {
-    let allowed_origins = vec![
+    let allowed_origins: Vec<HeaderValue> = vec![
         "https://aimerchant.app",
         "https://www.aimerchant.app",
-    ];
+    ].into_iter()
+    .filter_map(|o| HeaderValue::from_str(o).ok())
+    .collect();
 
     CorsLayer::new()
-        .allow_origin(allowed_origins.iter().filter_map(|o| HeaderValue::from_str(o).ok()))
+        .allow_origin(allowed_origins)
         .allow_methods([
             axum::http::Method::GET,
             axum::http::Method::POST,

@@ -3,6 +3,7 @@ use uuid::Uuid;
 use chrono::Utc;
 use sqlx::PgPool;
 use rust_decimal::Decimal;
+use rust_decimal::prelude::ToPrimitive;
 use tracing::{info, error};
 
 use crate::alerts::{Alert, AlertType, AlertSeverity, AlertMetadata};
