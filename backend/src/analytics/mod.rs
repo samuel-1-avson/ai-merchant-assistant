@@ -7,6 +7,7 @@ pub mod pricing;
 use serde::{Serialize, Deserialize};
 use uuid::Uuid;
 use rust_decimal::Decimal;
+use rust_decimal::prelude::FromPrimitive;
 use chrono::NaiveDate;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

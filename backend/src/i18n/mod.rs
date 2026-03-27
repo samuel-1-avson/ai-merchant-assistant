@@ -40,7 +40,7 @@ pub struct I18n;
 impl I18n {
     pub fn translate(key: &str, lang: Language) -> String {
         let translations = get_translations(lang);
-        translations.get(key).cloned().unwrap_or_else(|| key.to_string())
+        translations.get(key).cloned().map(|s| s.to_string()).unwrap_or_else(|| key.to_string())
     }
 
     pub fn t(key: &str, lang: Language) -> String {

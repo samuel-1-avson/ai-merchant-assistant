@@ -3,6 +3,7 @@
 
 use chrono::{NaiveDate, Duration};
 use rust_decimal::Decimal;
+use rust_decimal::prelude::FromPrimitive;
 use uuid::Uuid;
 
 /// Trend component types

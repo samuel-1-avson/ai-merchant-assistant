@@ -1,5 +1,6 @@
 use std::sync::Arc;
 use uuid::Uuid;
+use rust_decimal::prelude::FromPrimitive;
 
 use crate::models::transaction::{ExtractedEntities, Transaction, CreateTransactionRequest};
 use crate::db::repositories::transaction_repo::TransactionRepository;

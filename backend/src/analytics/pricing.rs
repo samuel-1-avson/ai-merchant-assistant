@@ -1,6 +1,7 @@
 //! Price Optimization Engine - Dynamic pricing suggestions based on demand elasticity
 
 use rust_decimal::Decimal;
+use rust_decimal::prelude::FromPrimitive;
 use uuid::Uuid;
 use std::collections::HashMap;
 

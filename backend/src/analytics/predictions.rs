@@ -1,6 +1,7 @@
 use uuid::Uuid;
 use chrono::{Utc, Duration, NaiveDate};
 use rust_decimal::Decimal;
+use rust_decimal::prelude::FromPrimitive;
 use sqlx::PgPool;
 
 use crate::analytics::{TimeSeriesPoint, TrendDirection};

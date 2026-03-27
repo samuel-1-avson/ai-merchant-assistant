@@ -31,6 +31,7 @@ impl AppConfig {
             together_api_key: std::env::var("TOGETHER_API_KEY").ok(),
             runpod_endpoint_url: std::env::var("RUNPOD_ENDPOINT_URL").ok(),
             runpod_api_key: std::env::var("RUNPOD_API_KEY").ok(),
+            easyocr_url: std::env::var("EASYOCR_URL").ok(),
             jwt_secret: std::env::var("JWT_SECRET")?,
         };
 
