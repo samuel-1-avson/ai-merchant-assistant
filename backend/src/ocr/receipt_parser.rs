@@ -114,7 +114,7 @@ impl ReceiptParser {
                     continue;
                 }
 
-                let quantity = Decimal::from_str(qty_str).unwrap_or_else(|_| Decimal::from(1));
+                let quantity = Decimal::from_str(qty_str).unwrap_or_else(|_| Decimal::from(1i32));
                 let price = Decimal::from_str(price_str).unwrap_or_else(|_| Decimal::ZERO);
                 let total = quantity * price;
 

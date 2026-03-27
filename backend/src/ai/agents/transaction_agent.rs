@@ -39,7 +39,7 @@ impl TransactionAgent {
         let request = CreateTransactionRequest {
             product_id,
             quantity: entities.quantity.map(|q| rust_decimal::Decimal::from_f64(q).unwrap_or_default())
-                .unwrap_or_else(|| rust_decimal::Decimal::from(1)),
+                .unwrap_or_else(|| rust_decimal::Decimal::from(1i32)),
             unit: entities.unit,
             price: entities.price.map(|p| rust_decimal::Decimal::from_f64(p).unwrap_or_default())
                 .unwrap_or_default(),
