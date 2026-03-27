@@ -6,15 +6,16 @@ services:
     ports:
       - "3000:3000"
     environment:
-      - DATABASE_URL=postgresql://postgres:password@db:5432/ai_merchant
-      - JWT_SECRET=your-super-secret-jwt-key
-      - AI_PROVIDER=huggingface
+      - DATABASE_URL=${DATABASE_URL}
+      - JWT_SECRET=${JWT_SECRET:-your-super-secret-jwt-key}
+      - AI_PROVIDER=${AI_PROVIDER:-huggingface}
       - HUGGINGFACE_API_TOKEN=${HUGGINGFACE_API_TOKEN}
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_SERVICE_KEY=${SUPABASE_SERVICE_KEY}
       - RUST_LOG=info
-    depends_on:
-      - db
-    volumes:
-      - ./backend:/app
+    env_file:
+      - .env
+    restart: unless-stopped
 
   frontend:
     build: ./frontend
@@ -24,19 +25,8 @@ services:
       - NEXT_PUBLIC_BACKEND_URL=http://localhost:3000
       - NEXT_PUBLIC_SUPABASE_URL=${SUPABASE_URL}
       - NEXT_PUBLIC_SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
+    env_file:
+      - .env
     depends_on:
       - backend
-
-  db:
-    image: postgres:15-alpine
-    environment:
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=password
-      - POSTGRES_DB=ai_merchant
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-
-volumes:
-  postgres_data:
+    restart: unless-stopped
