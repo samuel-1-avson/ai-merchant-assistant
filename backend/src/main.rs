@@ -18,8 +18,11 @@ mod auth;
 mod config;
 mod db;
 mod external;
+mod i18n;
 mod models;
+mod ocr;
 mod realtime;
+mod security;
 mod services;
 mod utils;
 

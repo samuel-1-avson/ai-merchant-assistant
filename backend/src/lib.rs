@@ -10,5 +10,6 @@ pub mod i18n;
 pub mod models;
 pub mod ocr;
 pub mod realtime;
+pub mod security;
 pub mod services;
 pub mod utils;
