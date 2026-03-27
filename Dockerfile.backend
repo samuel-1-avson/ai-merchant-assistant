@@ -1,0 +1,60 @@
+# Backend Production Dockerfile
+# Multi-stage build for optimized production image
+
+# Stage 1: Builder
+FROM rust:1.75-slim as builder
+
+WORKDIR /app
+
+# Install dependencies
+RUN apt-get update && apt-get install -y \
+    pkg-config \
+    libssl-dev \
+    libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy Cargo files first for better caching
+COPY backend/Cargo.toml backend/Cargo.lock ./
+
+# Create dummy main.rs to build dependencies
+RUN mkdir src && echo "fn main() {}" > src/main.rs
+RUN cargo build --release && rm -rf src
+
+# Copy actual source code
+COPY backend/src ./src
+
+# Build the application
+RUN touch src/main.rs
+RUN cargo build --release
+
+# Stage 2: Runtime
+FROM debian:bookworm-slim
+
+# Install runtime dependencies
+RUN apt-get update && apt-get install -y \
+    ca-certificates \
+    libpq5 \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create non-root user
+RUN groupadd -r appuser && useradd -r -g appuser appuser
+
+# Copy binary from builder
+COPY --from=builder /app/target/release/ai-merchant-backend /usr/local/bin/
+
+# Set ownership
+RUN chown appuser:appuser /usr/local/bin/ai-merchant-backend
+
+# Switch to non-root user
+USER appuser
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:3000/health || exit 1
+
+# Expose port
+EXPOSE 3000
+
+# Run the application
+CMD ["ai-merchant-backend"]
