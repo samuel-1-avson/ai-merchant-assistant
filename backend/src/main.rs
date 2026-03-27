@@ -33,14 +33,7 @@ use crate::config::AppConfig;
 use crate::db::Database;
 use crate::db::repositories::transaction_repo::TransactionRepository;
 use crate::db::repositories::product_repo::ProductRepository;
-
-#[derive(Clone)]
-pub struct AppState {
-    pub config: AppConfig,
-    pub db: Database,
-    pub ai_orchestrator: Arc<AIOrchestrator>,
-    pub notification_hub: Option<Arc<NotificationHub>>,
-}
+use crate::AppState;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {

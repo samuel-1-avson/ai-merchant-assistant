@@ -6,7 +6,8 @@ use chrono::{Utc, Duration, Datelike};
 use rust_decimal::Decimal;
 use rust_decimal::prelude::{FromPrimitive, ToPrimitive};
 
-use crate::models::analytics::{AnalyticsSummary, TopProduct, DailySale, SalesTrend, TrendDirection};
+use crate::models::analytics::{AnalyticsSummary, TopProduct, DailySale, SalesTrend};
+use crate::analytics::TrendDirection;
 
 pub struct AnalyticsEngine {
     pool: PgPool,
@@ -139,9 +140,9 @@ impl AnalyticsEngine {
     /// Calculate trend direction
     pub fn calculate_trend(current: Decimal, previous: Decimal) -> TrendDirection {
         if current > previous {
-            TrendDirection::Up
+            TrendDirection::Increasing
         } else if current < previous {
-            TrendDirection::Down
+            TrendDirection::Decreasing
         } else {
             TrendDirection::Stable
         }

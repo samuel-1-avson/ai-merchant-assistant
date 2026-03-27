@@ -7,9 +7,10 @@ use rust_decimal::Decimal;
 use serde_json::Value;
 
 use crate::models::{
-    analytics::{SalesSummary, TrendDirection, ComparisonResult, AnomalyResult},
+    analytics::{SalesSummary, ComparisonResult, AnomalyResult},
     transaction::Transaction,
 };
+use crate::analytics::TrendDirection;
 
 /// Alert severity level
 #[derive(Debug, Clone, Copy, PartialEq)]
