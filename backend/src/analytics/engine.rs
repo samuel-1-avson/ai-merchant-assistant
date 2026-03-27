@@ -1,6 +1,6 @@
 //! Analytics Engine - Core analytics calculations
 
-use sqlx::PgPool;
+use sqlx::{PgPool, Row};
 use uuid::Uuid;
 use chrono::{Utc, Duration, Datelike};
 use rust_decimal::Decimal;

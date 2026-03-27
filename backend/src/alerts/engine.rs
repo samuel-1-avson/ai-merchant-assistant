@@ -1,6 +1,6 @@
 //! Alert Engine - Monitors data and generates alerts
 
-use sqlx::PgPool;
+use sqlx::{PgPool, Row};
 use uuid::Uuid;
 use chrono::{DateTime, Utc, Duration};
 use rust_decimal::Decimal;

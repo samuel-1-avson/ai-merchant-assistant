@@ -4,7 +4,7 @@ use uuid::Uuid;
 use chrono::{Utc, Duration, NaiveDate, Datelike};
 use rust_decimal::Decimal;
 use rust_decimal::prelude::{FromPrimitive, ToPrimitive};
-use sqlx::PgPool;
+use sqlx::{PgPool, Row};
 
 use crate::analytics::{TimeSeriesPoint, TrendDirection};
 
