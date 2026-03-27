@@ -322,6 +322,7 @@ pub struct CrossValidationResult {
 mod tests {
     use super::*;
     use chrono::NaiveDate;
+use chrono::Datelike;
 
     #[test]
     fn test_prophet_forecast() {

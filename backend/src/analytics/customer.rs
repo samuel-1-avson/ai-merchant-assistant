@@ -1,6 +1,6 @@
 //! Customer Analytics - Cohort Analysis and Lifetime Value calculations
 
-use chrono::{NaiveDate, Duration};
+use chrono::{NaiveDate, Duration, Datelike};
 use rust_decimal::Decimal;
 use rust_decimal::prelude::{FromPrimitive, ToPrimitive};
 use uuid::Uuid;
@@ -274,7 +274,7 @@ impl CustomerAnalytics {
             };
 
             // Predict LTV using simple formula: AOV × Frequency × Prediction Months
-            let predicted_ltv = aov * Decimal::from(frequency) * Decimal::from(prediction_months);
+            let predicted_ltv = aov * Decimal::from_f64(frequency).unwrap_or_default() * Decimal::from(prediction_months);
 
             ltv_results.push(CustomerLTV {
                 customer_id,
