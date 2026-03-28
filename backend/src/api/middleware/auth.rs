@@ -43,8 +43,8 @@ pub async fn jwt_auth_middleware(
         None => return Err(StatusCode::UNAUTHORIZED),
     };
 
-    // Validate JWT
-    let validator = JwtValidator::new(&state.config.jwt_secret);
+    // Validate JWT using Supabase JWT secret
+    let validator = JwtValidator::new(&state.config.supabase_jwt_secret);
     let claims = match validator.validate(&token) {
         Ok(claims) => claims,
         Err(_) => return Err(StatusCode::UNAUTHORIZED),
@@ -59,7 +59,7 @@ pub async fn jwt_auth_middleware(
     // Add user info to request extensions
     let auth_user = AuthUser {
         user_id,
-        email: claims.email,
+        email: claims.email.unwrap_or_default(),
     };
     request.extensions_mut().insert(auth_user);
 
@@ -78,12 +78,12 @@ pub async fn optional_auth_middleware(
     next: Next,
 ) -> Response {
     if let Some(token) = extract_token_from_header(&request) {
-        let validator = JwtValidator::new(&state.config.jwt_secret);
+        let validator = JwtValidator::new(&state.config.supabase_jwt_secret);
         if let Ok(claims) = validator.validate(&token) {
             if let Ok(user_id) = Uuid::parse_str(&claims.sub) {
                 let auth_user = AuthUser {
                     user_id,
-                    email: claims.email,
+                    email: claims.email.unwrap_or_default(),
                 };
                 request.extensions_mut().insert(auth_user);
             }

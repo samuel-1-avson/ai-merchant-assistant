@@ -18,6 +18,23 @@ const getIconForCategory = (category?: string) => {
   }
 }
 
+/** Resolve a display name for a transaction, falling back to notes extraction. */
+function getProductName(transaction: Transaction): string {
+  if (transaction.product_name) return transaction.product_name
+  if (transaction.notes) {
+    for (const prefix of [
+      'New product from voice: ',
+      'Voice transaction: ',
+      'Multi-item transaction: ',
+    ]) {
+      if (transaction.notes.startsWith(prefix)) {
+        return transaction.notes.slice(prefix.length)
+      }
+    }
+  }
+  return 'Unknown Product'
+}
+
 const formatTimeAgo = (dateString: string) => {
   const date = new Date(dateString)
   const now = new Date()
@@ -49,7 +66,7 @@ export function RecentTransactions() {
     )
   }
 
-  if (transactions.length === 0) {
+  if (!transactions || transactions.length === 0) {
     return (
       <div className="text-center py-12">
         <div className="w-16 h-16 bg-slate-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
@@ -90,19 +107,19 @@ export function RecentTransactions() {
               {/* Details */}
               <div className="flex-1 min-w-0">
                 <p className="font-semibold text-slate-900 truncate">
-                  {transaction.product_name || 'Unknown Product'}
+                  {getProductName(transaction)}
                 </p>
                 <div className="flex items-center gap-2 text-sm text-slate-500">
                   <span>{transaction.quantity} {transaction.unit}</span>
                   <span>×</span>
-                  <span>${transaction.price.toFixed(2)}</span>
+                  <span>${Number(transaction.price || 0).toFixed(2)}</span>
                 </div>
               </div>
 
               {/* Time & Total */}
               <div className="text-right">
                 <p className="font-bold text-slate-900">
-                  ${transaction.total.toFixed(2)}
+                  ${Number(transaction.total || 0).toFixed(2)}
                 </p>
                 <p className="flex items-center gap-1 text-xs text-slate-400">
                   <Clock className="w-3 h-3" />

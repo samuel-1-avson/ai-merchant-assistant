@@ -16,13 +16,15 @@ import {
   HelpCircle,
 } from 'lucide-react'
 import { useState } from 'react'
+import { useAuthStore } from '@/stores/authStore'
+import { useAlertUpdates } from '@/hooks/useWebSocket'
 
 const navigation = [
-  { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, badge: null },
-  { name: 'Transactions', href: '/dashboard/transactions', icon: ShoppingCart, badge: '12' },
-  { name: 'Products', href: '/dashboard/products', icon: Package, badge: null },
-  { name: 'Analytics', href: '/dashboard/analytics', icon: BarChart3, badge: null },
-  { name: 'Alerts', href: '/dashboard/alerts', icon: Bell, badge: '3' },
+  { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
+  { name: 'Transactions', href: '/dashboard/transactions', icon: ShoppingCart },
+  { name: 'Products', href: '/dashboard/products', icon: Package },
+  { name: 'Analytics', href: '/dashboard/analytics', icon: BarChart3 },
+  { name: 'Alerts', href: '/dashboard/alerts', icon: Bell },
 ]
 
 const secondaryNavigation = [
@@ -33,6 +35,19 @@ const secondaryNavigation = [
 export function Sidebar() {
   const pathname = usePathname()
   const [isCollapsed, setIsCollapsed] = useState(false)
+  const { user, logout } = useAuthStore()
+  const { unreadCount } = useAlertUpdates()
+
+  // Get user initials for avatar
+  const getInitials = () => {
+    if (user?.full_name) {
+      return user.full_name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)
+    }
+    if (user?.email) {
+      return user.email.slice(0, 2).toUpperCase()
+    }
+    return 'MU'
+  }
 
   return (
     <div className={`hidden md:flex flex-col bg-white border-r border-slate-200 transition-all duration-300 ${
@@ -71,6 +86,7 @@ export function Sidebar() {
         )}
         {navigation.map((item) => {
           const isActive = pathname === item.href || pathname?.startsWith(`${item.href}/`)
+          const isAlerts = item.name === 'Alerts'
           
           return (
             <Link
@@ -92,20 +108,20 @@ export function Sidebar() {
               {!isCollapsed && (
                 <>
                   <span className="flex-1">{item.name}</span>
-                  {item.badge && (
+                  {isAlerts && unreadCount > 0 && (
                     <span className={`px-2 py-0.5 text-xs font-semibold rounded-full ${
                       isActive 
                         ? 'bg-primary-200 text-primary-800' 
-                        : 'bg-slate-200 text-slate-700'
+                        : 'bg-red-100 text-red-700'
                     }`}>
-                      {item.badge}
+                      {unreadCount}
                     </span>
                   )}
                 </>
               )}
-              {isCollapsed && item.badge && (
-                <span className="absolute top-1 right-1 w-4 h-4 bg-primary-500 rounded-full flex items-center justify-center text-[10px] text-white font-semibold">
-                  {item.badge}
+              {isCollapsed && isAlerts && unreadCount > 0 && (
+                <span className="absolute top-1 right-1 w-4 h-4 bg-red-500 rounded-full flex items-center justify-center text-[10px] text-white font-semibold">
+                  {unreadCount > 9 ? '9+' : unreadCount}
                 </span>
               )}
             </Link>
@@ -150,18 +166,24 @@ export function Sidebar() {
         }`}>
           <div className="relative">
             <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary-400 to-primary-600 flex items-center justify-center text-white font-semibold flex-shrink-0">
-              MU
+              {getInitials()}
             </div>
-            <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-secondary-500 border-2 border-white rounded-full" />
+            <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-green-500 border-2 border-white rounded-full" />
           </div>
           {!isCollapsed && (
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold text-slate-900 truncate">Merchant User</p>
-              <p className="text-xs text-slate-500 truncate">user@example.com</p>
+              <p className="text-sm font-semibold text-slate-900 truncate">
+                {user?.full_name || user?.email?.split('@')[0] || 'Merchant User'}
+              </p>
+              <p className="text-xs text-slate-500 truncate">{user?.email || 'user@example.com'}</p>
             </div>
           )}
           {!isCollapsed && (
-            <button className="p-2 hover:bg-slate-200 rounded-lg transition-colors text-slate-500">
+            <button 
+              onClick={logout}
+              className="p-2 hover:bg-slate-200 rounded-lg transition-colors text-slate-500"
+              title="Logout"
+            >
               <LogOut className="w-4 h-4" />
             </button>
           )}

@@ -2,8 +2,17 @@ use sqlx::{PgPool, Row};
 use uuid::Uuid;
 use rust_decimal::Decimal;
 use rust_decimal::prelude::{FromPrimitive, ToPrimitive};
+use sublime_fuzzy::{FuzzySearch, Scoring};
 
 use crate::models::product::{Product, CreateProductRequest};
+
+/// Result of fuzzy product matching
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ProductMatch {
+    pub product: Product,
+    pub score: i64,
+    pub matched_indices: Vec<usize>,
+}
 
 pub struct ProductRepository {
     pool: PgPool,
@@ -12,6 +21,11 @@ pub struct ProductRepository {
 impl ProductRepository {
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
+    }
+
+    /// Get a reference to the underlying connection pool
+    pub fn pool(&self) -> &PgPool {
+        &self.pool
     }
 
     pub async fn create(
@@ -110,6 +124,75 @@ impl ProductRepository {
         .await?;
 
         rows.into_iter().map(|r| self.row_to_product(&r)).collect()
+    }
+
+    /// Find products using fuzzy matching
+    /// Returns products sorted by match score (highest first)
+    /// Only returns matches with score >= threshold
+    pub async fn find_by_name_fuzzy(
+        &self,
+        user_id: Uuid,
+        query: &str,
+        threshold: Option<i64>,
+        limit: Option<usize>,
+    ) -> anyhow::Result<Vec<ProductMatch>> {
+        // Get all products for this user
+        let products = self.list_by_user(user_id).await?;
+        
+        if products.is_empty() {
+            return Ok(vec![]);
+        }
+        
+        let threshold = threshold.unwrap_or(50); // Default threshold: 50/100
+        let limit = limit.unwrap_or(3); // Default: top 3 matches
+        
+        // Configure scoring for product name matching
+        let scoring = Scoring::default();
+        
+        // Score each product
+        let mut matches: Vec<ProductMatch> = products
+            .into_iter()
+            .filter_map(|product| {
+                let search = FuzzySearch::new(query, &product.name)
+                    .score_with(&scoring)
+                    .best_match();
+                
+                if let Some(matched) = search {
+                    let score = matched.score() as i64;
+                    if score >= threshold {
+                        Some(ProductMatch {
+                            product,
+                            score,
+                            matched_indices: vec![], // Simplified - not using indices
+                        })
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            })
+            .collect();
+        
+        // Sort by score (descending)
+        matches.sort_by(|a, b| b.score.cmp(&a.score));
+        
+        // Limit results
+        matches.truncate(limit);
+        
+        Ok(matches)
+    }
+    
+    /// Find the best matching product by name
+    /// Returns None if no match above threshold
+    pub async fn find_best_match(
+        &self,
+        user_id: Uuid,
+        query: &str,
+        threshold: Option<i64>,
+    ) -> anyhow::Result<Option<ProductMatch>> {
+        let matches = self.find_by_name_fuzzy(user_id, query, threshold, Some(1)).await?;
+        Ok(matches.into_iter().next())
     }
 
     /// Helper to convert row to Product

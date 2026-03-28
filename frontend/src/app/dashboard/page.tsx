@@ -9,16 +9,19 @@ import { ToastContainer, useToast } from '@/components/ui/Toast'
 import { useDashboardStore } from '@/stores/dashboardStore'
 import { useTransactionUpdates, useWebSocket } from '@/hooks/useWebSocket'
 import { formatCurrency } from '@/lib/utils'
-import { 
-  TrendingUp, 
-  Calendar, 
-  Sparkles, 
-  ArrowUpRight, 
-  ArrowDownRight, 
-  Package, 
+import {
+  TrendingUp,
+  Calendar,
+  Sparkles,
+  ArrowUpRight,
+  ArrowDownRight,
+  Package,
   Wifi,
   WifiOff,
-  RefreshCw
+  RefreshCw,
+  Activity,
+  AlertTriangle,
+  TrendingDown,
 } from 'lucide-react'
 
 interface StatData {
@@ -93,39 +96,40 @@ export default function Dashboard() {
     fetchTransactions({ limit: 10, offset: 0 })
   }, [fetchAnalytics, fetchInsights, fetchTransactions])
 
-  // Prepare stats from real analytics data
+  // Prepare stats from real analytics + insights data
+  const revChange = insights?.revenue_change_percent ?? 0
   const stats: StatData[] = analytics ? [
     {
       title: 'Total Revenue',
-      value: formatCurrency(analytics.total_revenue, 'USD').replace('US', ''),
-      change: insights?.revenue_change_percent 
-        ? `${insights.revenue_change_percent >= 0 ? '+' : ''}${insights.revenue_change_percent.toFixed(1)}%`
-        : '+0%',
-      changeType: insights?.revenue_change_percent && insights.revenue_change_percent >= 0 ? 'positive' : 'negative',
+      value: `$${Number(analytics.total_revenue || 0).toFixed(2)}`,
+      change: `${revChange >= 0 ? '+' : ''}${revChange.toFixed(1)}% vs last week`,
+      changeType: revChange >= 0 ? 'positive' : 'negative',
       icon: TrendingUp,
       color: 'primary',
     },
     {
       title: 'Total Orders',
-      value: analytics.total_transactions.toLocaleString(),
-      change: '+8.2%',
+      value: Number(analytics.total_transactions || 0).toLocaleString(),
+      change: insights ? `${(insights.transactions_per_day).toFixed(1)}/day` : '—',
       changeType: 'positive',
       icon: Package,
       color: 'secondary',
     },
     {
       title: 'Items Sold',
-      value: Math.round(analytics.total_items_sold).toLocaleString(),
-      change: '+15.3%',
-      changeType: 'positive',
+      value: Math.round(Number(analytics.total_items_sold || 0)).toLocaleString(),
+      change: insights?.average_profit_margin_pct != null
+        ? `${insights.average_profit_margin_pct.toFixed(0)}% avg margin`
+        : 'No cost data',
+      changeType: (insights?.average_profit_margin_pct ?? 0) > 0 ? 'positive' : 'negative',
       icon: Package,
       color: 'accent',
     },
     {
       title: 'Avg Transaction',
-      value: `$${analytics.average_transaction_value.toFixed(2)}`,
-      change: analytics.average_transaction_value > 20 ? '+5.2%' : '-2.1%',
-      changeType: analytics.average_transaction_value > 20 ? 'positive' : 'negative',
+      value: `$${Number(analytics.average_transaction_value || 0).toFixed(2)}`,
+      change: insights ? `$${insights.average_daily_revenue.toFixed(2)}/day` : '—',
+      changeType: Number(analytics.average_transaction_value || 0) >= 20 ? 'positive' : 'negative',
       icon: TrendingUp,
       color: 'primary',
     },
@@ -248,38 +252,117 @@ export default function Dashboard() {
           ))}
         </div>
 
-        {/* AI Insight Banner */}
+        {/* Business Health + AI Insight Row */}
         {insights && (
-          <div className="bg-gradient-to-r from-accent-50 to-primary-50 border border-accent-200 rounded-2xl p-6 flex items-start gap-4">
-            <div className="w-12 h-12 bg-accent-100 rounded-xl flex items-center justify-center flex-shrink-0">
-              <Sparkles className="w-6 h-6 text-accent-600" />
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Health Score Card */}
+            <div className="card border border-slate-100 flex items-center gap-4">
+              <div className={`w-16 h-16 rounded-2xl flex items-center justify-center flex-shrink-0 ${
+                insights.health_score >= 80 ? 'bg-green-100' :
+                insights.health_score >= 60 ? 'bg-blue-100' :
+                insights.health_score >= 40 ? 'bg-yellow-100' : 'bg-red-100'
+              }`}>
+                <Activity className={`w-8 h-8 ${
+                  insights.health_score >= 80 ? 'text-green-600' :
+                  insights.health_score >= 60 ? 'text-blue-600' :
+                  insights.health_score >= 40 ? 'text-yellow-600' : 'text-red-600'
+                }`} />
+              </div>
+              <div>
+                <p className="text-sm text-slate-500">Business Health</p>
+                <p className="text-3xl font-bold text-slate-900">{insights.health_score}<span className="text-lg text-slate-400">/100</span></p>
+                <span className={`text-xs font-medium px-2 py-0.5 rounded-full capitalize ${
+                  insights.health_score >= 80 ? 'bg-green-100 text-green-700' :
+                  insights.health_score >= 60 ? 'bg-blue-100 text-blue-700' :
+                  insights.health_score >= 40 ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'
+                }`}>{insights.health_label.replace('_', ' ')}</span>
+              </div>
             </div>
-            <div className="flex-1">
-              <h3 className="font-semibold text-slate-900 mb-1">AI Insight</h3>
-              <p className="text-slate-600">
-                {insights.summary}
-              </p>
-              {insights.recommendations.length > 0 && (
-                <ul className="mt-2 space-y-1">
-                  {insights.recommendations.slice(0, 2).map((rec, i) => (
-                    <li key={i} className="text-sm text-slate-500 flex items-start gap-2">
-                      <span className="text-accent-500">•</span>
-                      {rec}
-                    </li>
+
+            {/* AI Insight Banner */}
+            <div className="lg:col-span-2 bg-gradient-to-r from-accent-50 to-primary-50 border border-accent-200 rounded-2xl p-6 flex items-start gap-4">
+              <div className="w-10 h-10 bg-accent-100 rounded-xl flex items-center justify-center flex-shrink-0">
+                <Sparkles className="w-5 h-5 text-accent-600" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <h3 className="font-semibold text-slate-900 mb-1">AI Insight</h3>
+                <p className="text-slate-600 text-sm">{insights.summary}</p>
+                {insights.recommendations.length > 0 && (
+                  <ul className="mt-2 space-y-1">
+                    {insights.recommendations.slice(0, 2).map((rec, i) => (
+                      <li key={i} className="text-sm text-slate-500 flex items-start gap-2">
+                        <span className={`mt-0.5 flex-shrink-0 ${rec.priority === 'high' ? 'text-red-500' : rec.priority === 'medium' ? 'text-yellow-500' : 'text-accent-500'}`}>•</span>
+                        {rec.message}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Product Performance Row */}
+        {insights && (insights.top_sellers.length > 0 || insights.slow_movers.length > 0) && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* Top Sellers */}
+            {insights.top_sellers.length > 0 && (
+              <div className="card border border-slate-100">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="w-8 h-8 bg-green-100 rounded-lg flex items-center justify-center">
+                    <TrendingUp className="w-4 h-4 text-green-600" />
+                  </div>
+                  <h3 className="font-semibold text-slate-900">Top Sellers (30 days)</h3>
+                </div>
+                <div className="space-y-3">
+                  {insights.top_sellers.slice(0, 4).map((p, i) => (
+                    <div key={i} className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold text-slate-400 w-4">{i + 1}</span>
+                        <span className="text-sm text-slate-700 font-medium">{p.product_name}</span>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-sm font-semibold text-slate-900">${Number(p.total_revenue).toFixed(2)}</span>
+                        <span className="text-xs text-slate-400 ml-2">{p.times_sold} sales</span>
+                      </div>
+                    </div>
                   ))}
-                </ul>
-              )}
-            </div>
-            <button className="btn-outline text-sm py-2 px-4 flex-shrink-0">
-              View Details
-            </button>
+                </div>
+              </div>
+            )}
+
+            {/* Slow Movers / Alerts */}
+            {insights.slow_movers.length > 0 && (
+              <div className="card border border-slate-100">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="w-8 h-8 bg-yellow-100 rounded-lg flex items-center justify-center">
+                    <TrendingDown className="w-4 h-4 text-yellow-600" />
+                  </div>
+                  <h3 className="font-semibold text-slate-900">Slow Movers (30 days)</h3>
+                </div>
+                <div className="space-y-3">
+                  {insights.slow_movers.slice(0, 4).map((p, i) => (
+                    <div key={i} className="flex items-center justify-between">
+                      <span className="text-sm text-slate-700">{p.product_name}</span>
+                      <span className="text-xs text-yellow-600 bg-yellow-50 px-2 py-0.5 rounded-full">{p.times_sold} sales</span>
+                    </div>
+                  ))}
+                </div>
+                {insights.no_sales_products.length > 0 && (
+                  <div className="mt-3 pt-3 border-t border-slate-100 flex items-center gap-2 text-xs text-red-600">
+                    <AlertTriangle className="w-3.5 h-3.5" />
+                    {insights.no_sales_products.length} product{insights.no_sales_products.length > 1 ? 's' : ''} with zero sales
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
 
         {/* Main Content Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           {/* Voice Recorder Section */}
-          <div className="lg:col-span-1">
+          <div className="lg:col-span-1" data-section="quick-sale">
             <div className="card border border-slate-100 sticky top-6">
               <div className="flex items-center gap-3 mb-6">
                 <div className="w-10 h-10 bg-primary-100 rounded-xl flex items-center justify-center">
@@ -290,7 +373,9 @@ export default function Dashboard() {
                   <p className="text-sm text-slate-500">Record a new transaction</p>
                 </div>
               </div>
-              <VoiceRecorder onSuccess={(msg) => success(msg)} onError={(msg) => error(msg)} />
+              <div data-recorder="voice">
+                <VoiceRecorder onSuccess={(msg) => success(msg)} onError={(msg) => error(msg)} />
+              </div>
               
               {/* Quick Tips */}
               <div className="mt-6 pt-6 border-t border-slate-100">

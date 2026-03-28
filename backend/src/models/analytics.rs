@@ -77,3 +77,21 @@ pub struct AnomalyResult {
     pub expected_value: Decimal,
     pub deviation_percent: f64,
 }
+
+/// Per-product performance for a given period
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProductPerformance {
+    pub product_id: Uuid,
+    pub product_name: String,
+    pub total_revenue: Decimal,
+    pub total_quantity: Decimal,
+    pub times_sold: i64,
+    pub average_price: Decimal,
+    pub cost_price: Option<Decimal>,
+    /// Estimated gross profit = total_revenue - (total_quantity × cost_price)
+    pub estimated_profit: Option<Decimal>,
+    /// Profit margin as a percentage (0–100)
+    pub profit_margin_pct: Option<f64>,
+    /// "top_seller" | "good" | "slow_mover" | "no_sales"
+    pub performance_label: String,
+}

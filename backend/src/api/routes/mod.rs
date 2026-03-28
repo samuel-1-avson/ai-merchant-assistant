@@ -7,3 +7,4 @@ pub mod voice;
 pub mod alerts;
 pub mod ocr;
 pub mod i18n;
+pub mod assistant;

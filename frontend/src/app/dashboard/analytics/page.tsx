@@ -49,21 +49,21 @@ export default function AnalyticsPage() {
     setIsLoading(true)
     try {
       // Fetch analytics summary
-      const summaryRes = await fetch(`http://localhost:3000/api/v1/analytics/summary?days=${period}`)
+      const summaryRes = await fetch(`http://localhost:8888/api/v1/analytics/summary?days=${period}`)
       const summaryData = await summaryRes.json()
       if (summaryData.success) {
         setAnalytics(summaryData.data)
       }
 
       // Fetch trends
-      const trendsRes = await fetch(`http://localhost:3000/api/v1/analytics/trends?days=${period}`)
+      const trendsRes = await fetch(`http://localhost:8888/api/v1/analytics/trends?days=${period}`)
       const trendsData = await trendsRes.json()
       if (trendsData.success) {
         setTrends(trendsData.data)
       }
 
       // Fetch insights
-      const insightsRes = await fetch('http://localhost:3000/api/v1/analytics/insights')
+      const insightsRes = await fetch('http://localhost:8888/api/v1/analytics/insights')
       const insightsData = await insightsRes.json()
       if (insightsData.success) {
         setInsights(insightsData.data)
@@ -105,25 +105,25 @@ export default function AnalyticsPage() {
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <StatCard
             title="Total Revenue"
-            value={`$${analytics?.total_revenue.toLocaleString() || 0}`}
+            value={`$${Number(analytics?.total_revenue || 0).toLocaleString()}`}
             trend={trends?.direction === 'increasing' ? 'up' : 'down'}
             icon={DollarSign}
           />
           <StatCard
             title="Transactions"
-            value={analytics?.total_transactions.toString() || '0'}
+            value={Number(analytics?.total_transactions || 0).toLocaleString()}
             trend="up"
             icon={ShoppingCart}
           />
           <StatCard
             title="Items Sold"
-            value={analytics?.total_items_sold.toString() || '0'}
+            value={Number(analytics?.total_items_sold || 0).toLocaleString()}
             trend="up"
             icon={TrendingUp}
           />
           <StatCard
             title="Avg Transaction"
-            value={`$${analytics?.average_transaction_value.toFixed(2) || 0}`}
+            value={`$${Number(analytics?.average_transaction_value || 0).toFixed(2)}`}
             trend="stable"
             icon={DollarSign}
           />
@@ -139,7 +139,7 @@ export default function AnalyticsPage() {
                   <div
                     className="w-full bg-primary-500 rounded-t"
                     style={{
-                      height: `${(day.revenue / Math.max(...analytics.daily_sales.map(d => d.revenue))) * 200}px`
+                      height: `${(Number(day.revenue || 0) / Math.max(...analytics.daily_sales.map(d => Number(d.revenue || 0)))) * 200}px`
                     }}
                   />
                   <span className="text-xs text-gray-500 mt-2">
@@ -157,7 +157,7 @@ export default function AnalyticsPage() {
               <div className="flex items-center gap-2">
                 <TrendingUp className="w-5 h-5 text-green-500" />
                 <span className="text-sm text-gray-600">
-                  Trend: {trends?.direction} (R² = {trends?.r_squared.toFixed(2)})
+                  Trend: {trends?.direction} (R² = {Number(trends?.r_squared || 0).toFixed(2)})
                 </span>
               </div>
               <div className="h-48 flex items-end space-x-2">
@@ -166,7 +166,7 @@ export default function AnalyticsPage() {
                     <div
                       className="w-full bg-green-400 rounded-t opacity-70"
                       style={{
-                        height: `${Math.min((point.value / 3000) * 150, 150)}px`
+                        height: `${Math.min((Number(point.value || 0) / 3000) * 150, 150)}px`
                       }}
                     />
                     <span className="text-xs text-gray-500 mt-2">
@@ -196,9 +196,9 @@ export default function AnalyticsPage() {
                 {analytics?.top_products.map((product) => (
                   <tr key={product.product_id} className="border-b">
                     <td className="py-3 px-4 font-medium">{product.product_name}</td>
-                    <td className="text-right py-3 px-4">{product.total_quantity}</td>
-                    <td className="text-right py-3 px-4">${product.total_revenue.toLocaleString()}</td>
-                    <td className="text-right py-3 px-4">{product.times_sold}</td>
+                    <td className="text-right py-3 px-4">{Number(product.total_quantity || 0).toLocaleString()}</td>
+                    <td className="text-right py-3 px-4">${Number(product.total_revenue || 0).toLocaleString()}</td>
+                    <td className="text-right py-3 px-4">{Number(product.times_sold || 0).toLocaleString()}</td>
                   </tr>
                 ))}
               </tbody>

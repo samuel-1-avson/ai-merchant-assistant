@@ -70,7 +70,7 @@ pub async fn handler(
 
 /// Authenticate JWT token and return user_id
 fn authenticate_token(token: &str, state: &AppState) -> anyhow::Result<Uuid> {
-    let validator = JwtValidator::new(&state.config.jwt_secret);
+    let validator = JwtValidator::new(&state.config.supabase_jwt_secret);
     let claims = validator.validate(token)?;
     let user_id = Uuid::parse_str(&claims.sub)?;
     Ok(user_id)
@@ -283,20 +283,36 @@ async fn handle_binary_data(
     state: &Arc<AppState>,
     tx: &mpsc::Sender<String>,
 ) {
+    use crate::ai::orchestrator::VoiceProcessingResult;
+    
     // Process audio through AI orchestrator if available
     let orchestrator = &state.ai_orchestrator;
     if let Some(user_id) = conn.user_id {
         // Process voice transaction
         match orchestrator.process_voice_transaction(data, user_id).await {
-            Ok(result) => {
-                let response = WsResponse::VoiceResult {
-                    transcription: result.transcription,
+            Ok(VoiceProcessingResult::Immediate(response)) => {
+                let ws_response = WsResponse::VoiceResult {
+                    transcription: response.transcription,
                     intent: json!({
-                        "transaction": result.transaction,
-                        "extracted_entities": result.extracted_entities,
+                        "type": "immediate",
+                        "transaction": response.transaction,
+                        "extracted_entities": response.extracted_entities,
                     }),
                 };
-                if let Ok(json) = serde_json::to_string(&response) {
+                if let Ok(json) = serde_json::to_string(&ws_response) {
+                    let _ = tx.send(json).await;
+                }
+            }
+            Ok(VoiceProcessingResult::Pending(confirmation)) => {
+                let ws_response = WsResponse::VoiceResult {
+                    transcription: confirmation.original_transcription.clone(),
+                    intent: json!({
+                        "type": "pending_confirmation",
+                        "confirmation_id": confirmation.id,
+                        "confirmation": confirmation,
+                    }),
+                };
+                if let Ok(json) = serde_json::to_string(&ws_response) {
                     let _ = tx.send(json).await;
                 }
             }

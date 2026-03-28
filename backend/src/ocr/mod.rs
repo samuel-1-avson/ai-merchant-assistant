@@ -1,8 +1,11 @@
 pub mod easyocr;
 pub mod receipt_parser;
+pub mod service;
 
 use serde::{Deserialize, Serialize};
 use rust_decimal::Decimal;
+
+pub use service::{OCRService, OCRConfig, OCRProcessingResult};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReceiptItem {

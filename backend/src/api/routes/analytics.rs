@@ -1,12 +1,13 @@
 use axum::{
-    extract::{State, Query},
+    extract::{State, Query, Extension},
     Json,
 };
 use std::sync::Arc;
 use serde_json::{json, Value};
-use uuid::Uuid;
 
+use rust_decimal::Decimal;
 use crate::api::state::AppState;
+use crate::api::middleware::AuthUser;
 use crate::utils::errors::ApiError;
 use crate::analytics::predictions::SimpleForecaster;
 
@@ -19,11 +20,10 @@ pub struct AnalyticsQuery {
 /// Get analytics summary for the authenticated user
 pub async fn summary(
     State(state): State<Arc<AppState>>,
+    Extension(auth_user): Extension<AuthUser>,
     Query(query): Query<AnalyticsQuery>,
 ) -> Result<Json<Value>, ApiError> {
-    // TODO: Get actual user_id from JWT token
-    let user_id = Uuid::parse_str("00000000-0000-0000-0000-000000000001")
-        .map_err(|_| ApiError::Unauthorized("Invalid user".to_string()))?;
+    let user_id = auth_user.user_id;
 
     let days = query.days.unwrap_or(7).min(90); // Max 90 days
 
@@ -46,11 +46,10 @@ pub async fn summary(
 /// Get sales trends analysis
 pub async fn trends(
     State(state): State<Arc<AppState>>,
+    Extension(auth_user): Extension<AuthUser>,
     Query(query): Query<AnalyticsQuery>,
 ) -> Result<Json<Value>, ApiError> {
-    // TODO: Get actual user_id from JWT token
-    let user_id = Uuid::parse_str("00000000-0000-0000-0000-000000000001")
-        .map_err(|_| ApiError::Unauthorized("Invalid user".to_string()))?;
+    let user_id = auth_user.user_id;
 
     let days = query.days.unwrap_or(30);
 
@@ -86,11 +85,10 @@ pub async fn trends(
 /// Get demand forecast
 pub async fn forecast(
     State(state): State<Arc<AppState>>,
+    Extension(auth_user): Extension<AuthUser>,
     Query(query): Query<AnalyticsQuery>,
 ) -> Result<Json<Value>, ApiError> {
-    // TODO: Get actual user_id from JWT token
-    let user_id = Uuid::parse_str("00000000-0000-0000-0000-000000000001")
-        .map_err(|_| ApiError::Unauthorized("Invalid user".to_string()))?;
+    let user_id = auth_user.user_id;
 
     let days = query.days.unwrap_or(30);
 
@@ -125,37 +123,63 @@ pub async fn forecast(
 /// Get AI-powered business insights
 pub async fn insights(
     State(state): State<Arc<AppState>>,
+    Extension(auth_user): Extension<AuthUser>,
 ) -> Result<Json<Value>, ApiError> {
-    // TODO: Get actual user_id from JWT token
-    let user_id = Uuid::parse_str("00000000-0000-0000-0000-000000000001")
-        .map_err(|_| ApiError::Unauthorized("Invalid user".to_string()))?;
+    let user_id = auth_user.user_id;
 
-    // Get summary for the last 7 days
-    let summary = state
-        .analytics_service
-        .get_summary(user_id, 7)
-        .await
-        .map_err(|e| ApiError::DatabaseError(e.to_string()))?;
+    // Fetch current + previous period and product performance in parallel
+    let (current_result, previous_result, perf_result) = tokio::join!(
+        state.analytics_service.get_summary(user_id, 7),
+        state.analytics_service.get_summary_for_period(user_id, 14, 7),
+        state.analytics_service.get_product_performance(user_id, 30),
+    );
 
-    // Get transactions for the last 14 days to compare
-    let current_period = state
-        .analytics_service
-        .get_summary(user_id, 7)
-        .await
-        .map_err(|e| ApiError::DatabaseError(e.to_string()))?;
-    
-    let previous_period = state
-        .analytics_service
-        .get_summary_for_period(user_id, 14, 7)
-        .await
-        .map_err(|e| ApiError::DatabaseError(e.to_string()))?;
+    let current = current_result.map_err(|e| ApiError::DatabaseError(e.to_string()))?;
+    let previous = previous_result.map_err(|e| ApiError::DatabaseError(e.to_string()))?;
+    let products = perf_result.map_err(|e| ApiError::DatabaseError(e.to_string()))?;
 
-    // Generate insights
-    let insights = generate_insights(&current_period, &previous_period, &summary.top_products);
+    let insights = generate_insights(&current, &previous, &products);
 
     Ok(Json(json!({
         "success": true,
         "data": insights
+    })))
+}
+
+/// GET /api/v1/analytics/products — per-product performance for a period
+pub async fn product_performance(
+    State(state): State<Arc<AppState>>,
+    Extension(auth_user): Extension<AuthUser>,
+    Query(query): Query<AnalyticsQuery>,
+) -> Result<Json<Value>, ApiError> {
+    let user_id = auth_user.user_id;
+
+    let days = query.days.unwrap_or(30).min(90);
+
+    let products = state
+        .analytics_service
+        .get_product_performance(user_id, days)
+        .await
+        .map_err(|e| ApiError::DatabaseError(e.to_string()))?;
+
+    let top_sellers: Vec<_> = products.iter().filter(|p| p.performance_label == "top_seller").collect();
+    let good: Vec<_> = products.iter().filter(|p| p.performance_label == "good").collect();
+    let slow: Vec<_> = products.iter().filter(|p| p.performance_label == "slow_mover").collect();
+    let no_sales: Vec<_> = products.iter().filter(|p| p.performance_label == "no_sales").collect();
+
+    Ok(Json(json!({
+        "success": true,
+        "data": {
+            "period_days": days,
+            "products": products,
+            "summary": {
+                "top_sellers": top_sellers.len(),
+                "good_performers": good.len(),
+                "slow_movers": slow.len(),
+                "no_sales": no_sales.len(),
+                "total_products": products.len(),
+            }
+        }
     })))
 }
 
@@ -219,70 +243,161 @@ fn calculate_trend(transactions: &[(chrono::NaiveDate, f64)]) -> TrendResult {
 fn generate_insights(
     current: &crate::models::analytics::AnalyticsSummary,
     previous: &crate::models::analytics::AnalyticsSummary,
-    top_products: &[crate::models::analytics::TopProduct],
+    products: &[crate::models::analytics::ProductPerformance],
 ) -> serde_json::Value {
-    use rust_decimal::prelude::*;
+    use rust_decimal::prelude::ToPrimitive;
 
-    let revenue_change = if previous.total_revenue > Decimal::ZERO {
+    let revenue_change_pct = if previous.total_revenue > Decimal::ZERO {
         ((current.total_revenue - previous.total_revenue) / previous.total_revenue)
             .to_f64()
             .unwrap_or(0.0)
+            * 100.0
     } else {
         0.0
     };
 
-    let mut recommendations: Vec<String> = vec![];
-    let mut alerts = vec![];
+    let revenue = current.total_revenue.to_f64().unwrap_or(0.0);
+    let avg_tx = current.average_transaction_value.to_f64().unwrap_or(0.0);
+    let daily_avg = revenue / 7.0;
+    let tx_per_day = current.total_transactions as f64 / 7.0;
 
-    // Revenue trend insights
-    if revenue_change > 0.1 {
-        recommendations.push("Your sales are trending upward! Consider increasing inventory for popular items.".to_string());
-    } else if revenue_change < -0.1 {
-        recommendations.push("Sales have declined. Consider promotional activities or reviewing pricing.".to_string());
-        alerts.push(serde_json::json!({
-            "alert_type": "sales_decline",
-            "severity": "warning",
-            "message": format!("Sales down {:.1}% compared to last week", revenue_change.abs() * 100.0),
-            "suggestion": "Review pricing or run promotions"
+    // ── Business health score (0-100) ──────────────────────────────────────
+    // Weighted from: revenue trend (40), transaction volume (30), avg tx value (30)
+    let trend_score = ((revenue_change_pct + 50.0) / 100.0 * 40.0).clamp(0.0, 40.0);
+    let volume_score = (tx_per_day / 10.0 * 30.0).clamp(0.0, 30.0); // 10 tx/day = full marks
+    let avg_tx_score = (avg_tx / 50.0 * 30.0).clamp(0.0, 30.0);     // $50 avg = full marks
+    let health_score = (trend_score + volume_score + avg_tx_score).round() as u32;
+
+    let health_label = match health_score {
+        80..=100 => "excellent",
+        60..=79  => "good",
+        40..=59  => "fair",
+        _        => "needs_attention",
+    };
+
+    // ── Product classification ──────────────────────────────────────────────
+    let top_sellers: Vec<_> = products.iter()
+        .filter(|p| p.performance_label == "top_seller")
+        .take(3)
+        .collect();
+    let slow_movers: Vec<_> = products.iter()
+        .filter(|p| p.performance_label == "slow_mover")
+        .take(5)
+        .collect();
+    let no_sales: Vec<_> = products.iter()
+        .filter(|p| p.performance_label == "no_sales")
+        .take(5)
+        .collect();
+
+    // ── Profitability snapshot ─────────────────────────────────────────────
+    let products_with_margin: Vec<_> = products.iter()
+        .filter(|p| p.profit_margin_pct.is_some() && p.times_sold > 0)
+        .collect();
+    let avg_margin_pct = if !products_with_margin.is_empty() {
+        let sum: f64 = products_with_margin.iter()
+            .filter_map(|p| p.profit_margin_pct)
+            .sum();
+        Some(sum / products_with_margin.len() as f64)
+    } else {
+        None
+    };
+
+    // ── Recommendations ────────────────────────────────────────────────────
+    let mut recommendations: Vec<serde_json::Value> = vec![];
+
+    if revenue_change_pct > 10.0 {
+        recommendations.push(json!({
+            "type": "stock",
+            "priority": "high",
+            "message": format!("Sales are up {:.1}% — ensure top sellers are well-stocked to avoid lost sales.", revenue_change_pct),
+        }));
+    } else if revenue_change_pct < -10.0 {
+        recommendations.push(json!({
+            "type": "pricing",
+            "priority": "high",
+            "message": format!("Revenue dropped {:.1}% vs last week. Consider a promotion or reviewing prices.", revenue_change_pct.abs()),
         }));
     }
 
-    // Top product insights
-    if let Some(top_product) = top_products.first() {
-        recommendations.push(format!(
-            "{} is your best-selling product. Ensure adequate stock levels.",
-            top_product.product_name
-        ));
+    if avg_tx < 20.0 && current.total_transactions > 0 {
+        recommendations.push(json!({
+            "type": "upsell",
+            "priority": "medium",
+            "message": format!("Average transaction is ${:.2}. Bundle slow-movers with top sellers to increase order size.", avg_tx),
+        }));
     }
 
-    // Transaction value insights
-    let avg_transaction = if current.total_transactions > 0 {
-        current.total_revenue / Decimal::from(current.total_transactions)
-    } else {
-        Decimal::ZERO
-    };
-
-    if avg_transaction < Decimal::from(20) {
-        recommendations.push("Your average transaction value is below $20. Try bundling products or upselling.".to_string());
+    if !top_sellers.is_empty() {
+        recommendations.push(json!({
+            "type": "stock",
+            "priority": "medium",
+            "message": format!("{} is your best performer. Keep stock levels high.", top_sellers[0].product_name),
+        }));
     }
 
-    let summary = if revenue_change > 0.0 {
+    if !slow_movers.is_empty() {
+        let names: Vec<&str> = slow_movers.iter().map(|p| p.product_name.as_str()).take(3).collect();
+        recommendations.push(json!({
+            "type": "pricing",
+            "priority": "low",
+            "message": format!("Slow-moving products: {}. Consider discounting or bundling these.", names.join(", ")),
+        }));
+    }
+
+    if !no_sales.is_empty() {
+        recommendations.push(json!({
+            "type": "catalogue",
+            "priority": "low",
+            "message": format!("{} product(s) had zero sales in 30 days. Review if they should still be listed.", no_sales.len()),
+        }));
+    }
+
+    // ── Alerts ─────────────────────────────────────────────────────────────
+    let mut alerts: Vec<serde_json::Value> = vec![];
+
+    if revenue_change_pct < -20.0 {
+        alerts.push(json!({
+            "type": "revenue_drop",
+            "severity": "critical",
+            "message": format!("Revenue is down {:.1}% compared to last week.", revenue_change_pct.abs()),
+        }));
+    } else if revenue_change_pct < -10.0 {
+        alerts.push(json!({
+            "type": "revenue_drop",
+            "severity": "warning",
+            "message": format!("Revenue is down {:.1}% compared to last week.", revenue_change_pct.abs()),
+        }));
+    }
+
+    // ── Summary sentence ───────────────────────────────────────────────────
+    let summary = if current.total_transactions == 0 {
+        "No transactions recorded yet. Start logging sales with the voice recorder.".to_string()
+    } else if revenue_change_pct > 0.0 {
         format!(
-            "Your sales are up {:.1}% compared to last week with {} transactions. Keep up the good work!",
-            revenue_change * 100.0,
-            current.total_transactions
+            "Sales are up {:.1}% vs last week — ${:.2} across {} transactions (avg ${:.2}/sale, ${:.2}/day).",
+            revenue_change_pct, revenue, current.total_transactions, avg_tx, daily_avg,
         )
     } else {
         format!(
-            "Your sales have decreased by {:.1}% compared to last week. Review your strategy to boost performance.",
-            revenue_change.abs() * 100.0
+            "Sales are down {:.1}% vs last week — ${:.2} across {} transactions (avg ${:.2}/sale, ${:.2}/day).",
+            revenue_change_pct.abs(), revenue, current.total_transactions, avg_tx, daily_avg,
         )
     };
 
-    serde_json::json!({
+    json!({
         "period": "last 7 days",
         "summary": summary,
-        "revenue_change_percent": revenue_change * 100.0,
+        "health_score": health_score,
+        "health_label": health_label,
+        "revenue": revenue,
+        "revenue_change_percent": revenue_change_pct,
+        "average_transaction_value": avg_tx,
+        "average_daily_revenue": daily_avg,
+        "transactions_per_day": tx_per_day,
+        "average_profit_margin_pct": avg_margin_pct,
+        "top_sellers": top_sellers,
+        "slow_movers": slow_movers,
+        "no_sales_products": no_sales,
         "recommendations": recommendations,
         "alerts": alerts,
     })

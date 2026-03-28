@@ -3,14 +3,22 @@
  * Base URL: http://localhost:3000/api/v1
  */
 
-import { Transaction, Product, AnalyticsSummary, User } from '@/types'
+import { Transaction, Product, AnalyticsSummary, User, PendingConfirmation, VoiceTransactionResult } from '@/types'
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/api/v1'
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8888/api/v1'
 
-// Get auth token from localStorage
+// Get auth token from Zustand persist storage (key: 'auth-storage')
 function getAuthToken(): string | null {
   if (typeof window !== 'undefined') {
-    return localStorage.getItem('auth_token')
+    try {
+      const stored = localStorage.getItem('auth-storage')
+      if (stored) {
+        const parsed = JSON.parse(stored)
+        return parsed?.state?.token ?? null
+      }
+    } catch {
+      // ignore parse errors
+    }
   }
   return null
 }
@@ -112,10 +120,32 @@ export const transactionsApi = {
     })
   },
 
-  createVoice: async (audioBase64: string): Promise<{ success: boolean; data?: { transaction: Transaction; transcription: string; extracted_entities: unknown }; error?: string }> => {
+  createVoice: async (audioBase64: string): Promise<{ success: boolean; data?: VoiceTransactionResult; error?: string }> => {
     return fetchApi('/transactions/voice', {
       method: 'POST',
       body: JSON.stringify({ audio_data: audioBase64 }),
+    })
+  },
+}
+
+// Confirmation API — for the pending transaction confirmation workflow
+export const confirmationApi = {
+  /** Fetch all pending confirmations for the current user */
+  list: async (): Promise<{ success: boolean; data?: PendingConfirmation[]; error?: string }> => {
+    return fetchApi('/transactions/confirmations')
+  },
+
+  /** Confirm a pending transaction — commits it to the database */
+  confirm: async (confirmationId: string): Promise<{ success: boolean; data?: Transaction; error?: string }> => {
+    return fetchApi(`/transactions/confirmations/${confirmationId}/confirm`, {
+      method: 'POST',
+    })
+  },
+
+  /** Reject a pending transaction — discards it */
+  reject: async (confirmationId: string): Promise<{ success: boolean; error?: string }> => {
+    return fetchApi(`/transactions/confirmations/${confirmationId}/reject`, {
+      method: 'POST',
     })
   },
 }
@@ -173,7 +203,23 @@ export const analyticsApi = {
     return fetchApi(`/analytics/forecast?${queryParams.toString()}`)
   },
 
-  getInsights: async (): Promise<{ success: boolean; data?: { period: string; summary: string; revenue_change_percent: number; recommendations: string[]; alerts: unknown[] }; error?: string }> => {
+  getInsights: async (): Promise<{ success: boolean; data?: {
+    period: string
+    summary: string
+    health_score: number
+    health_label: string
+    revenue: number
+    revenue_change_percent: number
+    average_transaction_value: number
+    average_daily_revenue: number
+    transactions_per_day: number
+    average_profit_margin_pct: number | null
+    top_sellers: Array<{ product_name: string; times_sold: number; total_revenue: number; performance_label: string }>
+    slow_movers: Array<{ product_name: string; times_sold: number; performance_label: string }>
+    no_sales_products: Array<{ product_name: string }>
+    recommendations: Array<{ type: string; priority: string; message: string }>
+    alerts: Array<{ type: string; severity: string; message: string }>
+  }; error?: string }> => {
     return fetchApi('/analytics/insights')
   },
 }
@@ -187,10 +233,44 @@ export const voiceApi = {
     })
   },
 
+  /**
+   * Convert text to speech.
+   * Returns base64-encoded WAV audio that can be decoded and played in the browser.
+   */
   synthesize: async (text: string): Promise<{ success: boolean; data?: { audio: string; format: string }; error?: string }> => {
     return fetchApi('/voice/synthesize', {
       method: 'POST',
       body: JSON.stringify({ text }),
+    })
+  },
+
+  /** Play a base64 WAV string in the browser using Web Audio API */
+  playBase64Audio: async (base64Audio: string): Promise<void> => {
+    const binary = atob(base64Audio)
+    const bytes = new Uint8Array(binary.length)
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i)
+    }
+    const blob = new Blob([bytes], { type: 'audio/wav' })
+    const url = URL.createObjectURL(blob)
+    const audio = new Audio(url)
+    return new Promise((resolve) => {
+      audio.onended = () => { URL.revokeObjectURL(url); resolve() }
+      audio.onerror = () => { URL.revokeObjectURL(url); resolve() }
+      audio.play().catch(() => resolve())
+    })
+  },
+}
+
+// AI Assistant chat
+export const assistantApi = {
+  chat: async (
+    message: string,
+    history: Array<{ role: string; text: string }> = [],
+  ): Promise<{ success: boolean; data?: { reply: string }; error?: string }> => {
+    return fetchApi('/assistant/chat', {
+      method: 'POST',
+      body: JSON.stringify({ message, history }),
     })
   },
 }

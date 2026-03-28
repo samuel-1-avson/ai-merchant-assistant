@@ -22,11 +22,15 @@ interface UseWebSocketOptions {
 }
 
 export function useWebSocket(options: UseWebSocketOptions = {}) {
-  const { autoConnect = true, onConnect, onDisconnect, onError } = options;
+  const { autoConnect = true } = options;
   const { isAuthenticated } = useAuthStore();
   const [isConnected, setIsConnected] = useState(false);
   const clientRef = useRef<WebSocketClient | null>(null);
   const handlersRef = useRef<Map<string, () => void>>(new Map());
+  
+  // Use refs for callbacks to avoid effect re-runs
+  const callbacksRef = useRef(options);
+  callbacksRef.current = options;
 
   useEffect(() => {
     if (autoConnect && isAuthenticated) {
@@ -35,11 +39,11 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
       // Set up connection status tracking
       const unsubscribeConnected = clientRef.current.on('connected', () => {
         setIsConnected(true);
-        onConnect?.();
+        callbacksRef.current.onConnect?.();
       });
 
       const unsubscribeError = clientRef.current.on('error', (msg) => {
-        onError?.(new Event(msg.message || 'WebSocket error'));
+        callbacksRef.current.onError?.(new Event(msg.message || 'WebSocket error'));
       });
 
       // Wait a bit and check connection status
@@ -53,10 +57,10 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
         unsubscribeError();
         closeWebSocket();
         setIsConnected(false);
-        onDisconnect?.();
+        callbacksRef.current.onDisconnect?.();
       };
     }
-  }, [autoConnect, isAuthenticated, onConnect, onDisconnect, onError]);
+  }, [autoConnect, isAuthenticated]); // Removed callback dependencies
 
   /**
    * Subscribe to a WebSocket event
@@ -65,7 +69,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
     if (!clientRef.current) return () => {};
     
     const unsubscribe = clientRef.current.on(event, handler);
-    const handlerId = `${event}_${Date.now()}`;
+    const handlerId = `${event}_${Date.now()}_${Math.random()}`;
     handlersRef.current.set(handlerId, unsubscribe);
     
     return () => {
@@ -116,16 +120,18 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
  */
 export function useTransactionUpdates(onUpdate?: (data: any) => void) {
   const { subscribe, isConnected } = useWebSocket();
+  const onUpdateRef = useRef(onUpdate);
+  onUpdateRef.current = onUpdate;
 
   useEffect(() => {
-    if (!isConnected || !onUpdate) return;
+    if (!isConnected) return;
 
     const unsubscribe = subscribe('transaction_update', (message) => {
-      onUpdate(message);
+      onUpdateRef.current?.(message);
     });
 
     return unsubscribe;
-  }, [isConnected, onUpdate, subscribe]);
+  }, [isConnected, subscribe]);
 
   return { isConnected };
 }
@@ -136,13 +142,15 @@ export function useTransactionUpdates(onUpdate?: (data: any) => void) {
 export function useAlertUpdates(onAlert?: (alert: any) => void) {
   const { subscribe, isConnected, send } = useWebSocket();
   const [unreadCount, setUnreadCount] = useState(0);
+  const onAlertRef = useRef(onAlert);
+  onAlertRef.current = onAlert;
 
   useEffect(() => {
     if (!isConnected) return;
 
     const unsubscribeNew = subscribe('new_alert', (message) => {
       setUnreadCount(prev => prev + 1);
-      onAlert?.(message.alert);
+      onAlertRef.current?.(message.alert);
     });
 
     const unsubscribeNotification = subscribe('notification', (message) => {
@@ -155,7 +163,7 @@ export function useAlertUpdates(onAlert?: (alert: any) => void) {
       unsubscribeNew();
       unsubscribeNotification();
     };
-  }, [isConnected, onAlert, subscribe]);
+  }, [isConnected, subscribe]);
 
   const markAsRead = useCallback((alertId: string) => {
     send('mark_alert_read', { alert_id: alertId });

@@ -54,6 +54,7 @@ base64 = "0.21"
 
 # OCR & Pattern Matching
 regex = "1.10"
+sublime_fuzzy = "0.7"
 
 # i18n
 lazy_static = "1.4"

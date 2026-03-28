@@ -29,10 +29,12 @@ impl TransactionRepository {
     pub async fn get_by_id(&self, id: Uuid, user_id: Uuid) -> anyhow::Result<Option<Transaction>> {
         let row = sqlx::query(
             r#"
-            SELECT id, user_id, product_id, quantity, unit, price, total, 
-                   notes, voice_recording_url, created_at, updated_at
-            FROM transactions 
-            WHERE id = $1 AND user_id = $2
+            SELECT t.id, t.user_id, t.product_id, t.quantity, t.unit, t.price, t.total,
+                   t.notes, t.voice_recording_url, t.created_at, t.updated_at,
+                   p.name AS product_name
+            FROM transactions t
+            LEFT JOIN products p ON t.product_id = p.id
+            WHERE t.id = $1 AND t.user_id = $2
             "#
         )
         .bind(id)
@@ -57,25 +59,26 @@ impl TransactionRepository {
         offset: i64,
     ) -> anyhow::Result<Vec<Transaction>> {
         let mut query = String::from(
-            "SELECT id, user_id, product_id, quantity, unit, price, total, notes, voice_recording_url, created_at, updated_at 
-             FROM transactions 
-             WHERE user_id = $1"
+            "SELECT t.id, t.user_id, t.product_id, t.quantity, t.unit, t.price, t.total, \
+             t.notes, t.voice_recording_url, t.created_at, t.updated_at, p.name AS product_name \
+             FROM transactions t LEFT JOIN products p ON t.product_id = p.id \
+             WHERE t.user_id = $1"
         );
         let mut param_idx = 2;
 
         if product_id.is_some() {
-            query.push_str(&format!(" AND product_id = ${}", param_idx));
+            query.push_str(&format!(" AND t.product_id = ${}", param_idx));
             param_idx += 1;
         }
         if start_date.is_some() {
-            query.push_str(&format!(" AND created_at >= ${}", param_idx));
+            query.push_str(&format!(" AND t.created_at >= ${}", param_idx));
             param_idx += 1;
         }
         if end_date.is_some() {
-            query.push_str(&format!(" AND created_at <= ${}", param_idx));
+            query.push_str(&format!(" AND t.created_at <= ${}", param_idx));
             param_idx += 1;
         }
-        query.push_str(&format!(" ORDER BY created_at DESC LIMIT ${} OFFSET ${}", param_idx, param_idx + 1));
+        query.push_str(&format!(" ORDER BY t.created_at DESC LIMIT ${} OFFSET ${}", param_idx, param_idx + 1));
 
         let mut q = sqlx::query(&query).bind(user_id);
         if let Some(pid) = product_id {
@@ -196,11 +199,13 @@ impl TransactionRepository {
     pub async fn list_by_user(&self, user_id: Uuid, limit: i64, offset: i64) -> anyhow::Result<Vec<Transaction>> {
         let rows = sqlx::query(
             r#"
-            SELECT id, user_id, product_id, quantity, unit, price, total, 
-                   notes, voice_recording_url, created_at, updated_at
-            FROM transactions 
-            WHERE user_id = $1
-            ORDER BY created_at DESC
+            SELECT t.id, t.user_id, t.product_id, t.quantity, t.unit, t.price, t.total,
+                   t.notes, t.voice_recording_url, t.created_at, t.updated_at,
+                   p.name AS product_name
+            FROM transactions t
+            LEFT JOIN products p ON t.product_id = p.id
+            WHERE t.user_id = $1
+            ORDER BY t.created_at DESC
             LIMIT $2 OFFSET $3
             "#
         )
@@ -222,11 +227,13 @@ impl TransactionRepository {
     ) -> anyhow::Result<Vec<Transaction>> {
         let rows = sqlx::query(
             r#"
-            SELECT id, user_id, product_id, quantity, unit, price, total, 
-                   notes, voice_recording_url, created_at, updated_at
-            FROM transactions 
-            WHERE user_id = $1 AND created_at >= $2 AND created_at <= $3
-            ORDER BY created_at DESC
+            SELECT t.id, t.user_id, t.product_id, t.quantity, t.unit, t.price, t.total,
+                   t.notes, t.voice_recording_url, t.created_at, t.updated_at,
+                   p.name AS product_name
+            FROM transactions t
+            LEFT JOIN products p ON t.product_id = p.id
+            WHERE t.user_id = $1 AND t.created_at >= $2 AND t.created_at <= $3
+            ORDER BY t.created_at DESC
             "#
         )
         .bind(user_id)
@@ -238,19 +245,46 @@ impl TransactionRepository {
         rows.into_iter().map(|r| self.row_to_transaction(&r)).collect()
     }
 
-    /// Helper to convert row to Transaction
+    /// Helper to convert row to Transaction.
+    ///
+    /// `product_name` is populated from the products JOIN when available.
+    /// For voice transactions without a catalog link, it is extracted from
+    /// the notes field (e.g. "New product from voice: shirts").
     fn row_to_transaction(&self, row: &sqlx::postgres::PgRow) -> anyhow::Result<Transaction> {
         use sqlx::Row;
+        let notes: Option<String> = row.try_get("notes").ok();
+
+        // Try the joined products.name column first; fall back to notes-based extraction.
+        let product_name: Option<String> = row
+            .try_get::<Option<String>, _>("product_name")
+            .ok()
+            .flatten()
+            .or_else(|| {
+                notes.as_ref().and_then(|n| {
+                    for prefix in &[
+                        "New product from voice: ",
+                        "Voice transaction: ",
+                        "Multi-item transaction: ",
+                    ] {
+                        if let Some(name) = n.strip_prefix(prefix) {
+                            return Some(name.to_string());
+                        }
+                    }
+                    None
+                })
+            });
+
         Ok(Transaction {
             id: row.try_get("id")?,
             user_id: row.try_get("user_id")?,
             product_id: row.try_get("product_id")?,
-            quantity: Decimal::from_f64(row.try_get::<f64, _>("quantity")?).unwrap_or_default(),
-            unit: row.try_get("unit")?,
-            price: Decimal::from_f64(row.try_get::<f64, _>("price")?).unwrap_or_default(),
-            total: Decimal::from_f64(row.try_get::<f64, _>("total")?).unwrap_or_default(),
-            notes: row.try_get("notes")?,
-            voice_recording_url: row.try_get("voice_recording_url")?,
+            product_name,
+            quantity: Decimal::from_f64(row.try_get::<f64, _>("quantity").unwrap_or(0.0)).unwrap_or_default(),
+            unit: row.try_get::<Option<String>, _>("unit").ok().flatten().unwrap_or_else(|| "piece".to_string()),
+            price: Decimal::from_f64(row.try_get::<f64, _>("price").unwrap_or(0.0)).unwrap_or_default(),
+            total: Decimal::from_f64(row.try_get::<f64, _>("total").unwrap_or(0.0)).unwrap_or_default(),
+            notes,
+            voice_recording_url: row.try_get("voice_recording_url").ok(),
             created_at: row.try_get("created_at")?,
             updated_at: row.try_get("updated_at")?,
         })

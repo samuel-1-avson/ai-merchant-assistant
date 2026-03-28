@@ -41,8 +41,13 @@ export default function LoginPage() {
 
   const handleGoogleSignIn = async () => {
     clearError()
-    await googleLogin()
-    // Note: Redirect happens automatically via Supabase OAuth flow
+    try {
+      await googleLogin()
+      // Note: Redirect happens automatically via Supabase OAuth flow
+    } catch (error) {
+      console.error('Google sign-in error:', error)
+      // Error is already set in the store
+    }
   }
 
   const handleGitHubSignIn = async () => {

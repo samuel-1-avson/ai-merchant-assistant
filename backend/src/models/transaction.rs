@@ -3,11 +3,13 @@ use uuid::Uuid;
 use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
 
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Transaction {
     pub id: Uuid,
     pub user_id: Uuid,
     pub product_id: Option<Uuid>,
+    /// Resolved product name: from the products table (if linked) or extracted from voice notes.
+    pub product_name: Option<String>,
     pub quantity: Decimal,
     pub unit: String,
     pub price: Decimal,
@@ -46,4 +48,23 @@ pub struct ExtractedEntities {
     pub unit: Option<String>,
     pub price: Option<f64>,
     pub currency: Option<String>,
+}
+
+/// Individual item in a multi-product transaction
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExtractedItem {
+    pub product: String,
+    pub quantity: f64,
+    pub unit: Option<String>,
+    pub price: Option<f64>, // Price per unit (optional)
+}
+
+/// Multi-product entity extraction result
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MultiProductEntities {
+    pub items: Vec<ExtractedItem>,
+    pub total_price: Option<f64>, // Overall total if mentioned
+    pub currency: Option<String>,
+    pub transaction_date: Option<String>,
+    pub notes: Option<String>,
 }

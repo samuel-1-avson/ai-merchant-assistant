@@ -27,7 +27,7 @@ export default function AlertsPage() {
   const fetchAlerts = async () => {
     setIsLoading(true)
     try {
-      const res = await fetch('http://localhost:3000/api/v1/alerts')
+      const res = await fetch('http://localhost:8888/api/v1/alerts')
       const data = await res.json()
       if (data.success) {
         setAlerts(data.data)
@@ -41,7 +41,7 @@ export default function AlertsPage() {
 
   const markAsRead = async (id: string) => {
     try {
-      await fetch(`http://localhost:3000/api/v1/alerts/${id}/read`, { method: 'POST' })
+      await fetch(`http://localhost:8888/api/v1/alerts/${id}/read`, { method: 'POST' })
       setAlerts(alerts.map(a => a.id === id ? { ...a, is_read: true } : a))
     } catch (error) {
       console.error('Error marking alert as read:', error)
@@ -51,7 +51,7 @@ export default function AlertsPage() {
   const checkNow = async () => {
     setIsLoading(true)
     try {
-      await fetch('http://localhost:3000/api/v1/alerts/check', { method: 'POST' })
+      await fetch('http://localhost:8888/api/v1/alerts/check', { method: 'POST' })
       await fetchAlerts()
     } catch (error) {
       console.error('Error checking alerts:', error)
@@ -187,7 +187,7 @@ function AlertCard({ alert, onMarkRead }: { alert: Alert; onMarkRead: (id: strin
                 )}
                 {alert.metadata.deviation_percent !== undefined && (
                   <span className="text-sm bg-white px-3 py-1 rounded-full border">
-                    Deviation: {alert.metadata.deviation_percent.toFixed(1)}%
+                    Deviation: {Number(alert.metadata.deviation_percent || 0).toFixed(1)}%
                   </span>
                 )}
               </div>

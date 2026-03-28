@@ -31,22 +31,33 @@ export class WebSocketClient {
   private heartbeatInterval: NodeJS.Timeout | null = null;
   private eventHandlers: Map<WsMessageType, Set<WsEventHandler>> = new Map();
   private isIntentionallyClosed = false;
+  private isConnecting = false;
+  private reconnectTimer: NodeJS.Timeout | null = null;
 
   constructor(backendUrl?: string) {
     // Convert http(s) to ws(s)
-    const baseUrl = backendUrl || process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3000';
-    this.url = baseUrl.replace(/^http/, 'ws') + '/ws';
+    const baseUrl = backendUrl || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8888/api/v1';
+    // Remove /api/v1 suffix if present and convert to ws
+    const wsBase = baseUrl.replace(/\/api\/v1$/, '').replace(/^http/, 'ws');
+    this.url = wsBase + '/ws';
   }
 
   /**
    * Connect to WebSocket server
    */
   connect(): void {
+    // Prevent multiple simultaneous connection attempts
+    if (this.isConnecting) {
+      console.log('[WebSocket] Already connecting, skipping...');
+      return;
+    }
+    
     if (this.ws?.readyState === WebSocket.OPEN) {
       console.log('[WebSocket] Already connected');
       return;
     }
 
+    this.isConnecting = true;
     this.isIntentionallyClosed = false;
 
     // Get auth token
@@ -54,12 +65,27 @@ export class WebSocketClient {
     const url = token ? `${this.url}?token=${encodeURIComponent(token)}` : this.url;
 
     console.log('[WebSocket] Connecting...');
-    this.ws = new WebSocket(url);
+    
+    try {
+      this.ws = new WebSocket(url);
 
-    this.ws.onopen = this.handleOpen.bind(this);
-    this.ws.onmessage = this.handleMessage.bind(this);
-    this.ws.onclose = this.handleClose.bind(this);
-    this.ws.onerror = this.handleError.bind(this);
+      this.ws.onopen = () => {
+        this.isConnecting = false;
+        this.handleOpen();
+      };
+      this.ws.onmessage = this.handleMessage.bind(this);
+      this.ws.onclose = (event) => {
+        this.isConnecting = false;
+        this.handleClose(event);
+      };
+      this.ws.onerror = (error) => {
+        this.isConnecting = false;
+        this.handleError(error);
+      };
+    } catch (error) {
+      this.isConnecting = false;
+      console.error('[WebSocket] Failed to create connection:', error);
+    }
   }
 
   /**
@@ -67,6 +93,14 @@ export class WebSocketClient {
    */
   disconnect(): void {
     this.isIntentionallyClosed = true;
+    this.isConnecting = false;
+    
+    // Clear any pending reconnect timer
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    
     this.stopHeartbeat();
     
     if (this.ws) {
@@ -201,7 +235,7 @@ export class WebSocketClient {
     this.reconnectAttempts++;
     console.log(`[WebSocket] Reconnecting... (${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
 
-    setTimeout(() => {
+    this.reconnectTimer = setTimeout(() => {
       this.connect();
     }, this.reconnectDelay);
 

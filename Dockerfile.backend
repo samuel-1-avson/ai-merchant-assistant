@@ -1,8 +1,9 @@
 # Backend Production Dockerfile
 # Multi-stage build for optimized production image
+# Includes: AI Failover, Rate Limiting, OCR, Alerts, Multi-Product Transactions
 
 # Stage 1: Builder
-FROM rust:latest as builder
+FROM rust:1.88-slim-bookworm AS builder
 
 WORKDIR /app
 
@@ -11,15 +12,13 @@ RUN apt-get update && apt-get install -y \
     pkg-config \
     libssl-dev \
     libpq-dev \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy Cargo files first for better caching
 COPY backend/Cargo.toml backend/Cargo.lock ./
 
-# Copy SQLx offline query data (optional - for compile-time query validation)
-# COPY backend/sqlx-data.json ./sqlx-data.json
-
-# Create dummy main.rs to build dependencies
+# Create dummy main.rs to build dependencies (caching layer)
 RUN mkdir src && echo "fn main() {println!(\"dummy\")}" > src/main.rs
 ENV SQLX_OFFLINE=true
 RUN cargo build --release && rm -rf src

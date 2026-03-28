@@ -3,6 +3,8 @@
 pub mod rate_limit;
 pub mod cors;
 
+pub use rate_limit::{RateLimiter, RateLimitConfig, rate_limit_layer};
+
 use axum::{
     extract::Request,
     middleware::Next,

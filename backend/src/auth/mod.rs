@@ -6,7 +6,11 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Claims {
     pub sub: String,  // User ID
-    pub email: String,
+    pub email: Option<String>,
+    #[serde(default)]
+    pub role: Option<String>,
+    #[serde(default)]
+    pub aud: Option<String>,
     pub exp: usize,
     pub iat: usize,
 }
@@ -23,7 +27,9 @@ impl JwtValidator {
     }
     
     pub fn validate(&self, token: &str) -> anyhow::Result<Claims> {
-        let validation = Validation::new(Algorithm::HS256);
+        let mut validation = Validation::new(Algorithm::HS256);
+        // Allow some clock skew
+        validation.leeway = 60;
         let token_data = decode::<Claims>(token, &self.decoding_key, &validation)?;
         Ok(token_data.claims)
     }

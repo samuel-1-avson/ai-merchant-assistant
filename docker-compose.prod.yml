@@ -9,14 +9,44 @@ services:
     container_name: ai-merchant-backend
     restart: unless-stopped
     environment:
+      # Logging
       - RUST_LOG=info
+      
+      # Database & Cache
       - DATABASE_URL=${DATABASE_URL}
-      - REDIS_URL=${REDIS_URL}
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379}
+      
+      # Security
       - JWT_SECRET=${JWT_SECRET}
+      
+      # AI Providers (Failover: HuggingFace → Together AI → RunPod)
+      - AI_PROVIDER=${AI_PROVIDER:-huggingface}
+      - HUGGINGFACE_API_TOKEN=${HUGGINGFACE_API_TOKEN}
+      - TOGETHER_API_KEY=${TOGETHER_API_KEY}
+      - RUNPOD_ENDPOINT_URL=${RUNPOD_ENDPOINT_URL}
+      - RUNPOD_API_KEY=${RUNPOD_API_KEY}
+      
+      # Supabase
       - SUPABASE_URL=${SUPABASE_URL}
       - SUPABASE_SERVICE_KEY=${SUPABASE_SERVICE_KEY}
-      - AI_PROVIDER=${AI_PROVIDER}
-      - HUGGINGFACE_API_TOKEN=${HUGGINGFACE_API_TOKEN}
+      - SUPABASE_JWT_SECRET=${SUPABASE_JWT_SECRET}
+      
+      # OAuth Providers
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
+      - GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID}
+      - GITHUB_CLIENT_SECRET=${GITHUB_CLIENT_SECRET}
+      
+      # Rate Limiting Configuration
+      - RATE_LIMIT_AI_REQUESTS=${RATE_LIMIT_AI_REQUESTS:-20}
+      - RATE_LIMIT_AUTH_REQUESTS=${RATE_LIMIT_AUTH_REQUESTS:-10}
+      - RATE_LIMIT_DEFAULT_REQUESTS=${RATE_LIMIT_DEFAULT_REQUESTS:-100}
+      
+      # Alert Configuration
+      - ALERT_LOW_STOCK_THRESHOLD=${ALERT_LOW_STOCK_THRESHOLD:-10}
+      - ALERT_CHECK_INTERVAL_MINUTES=${ALERT_CHECK_INTERVAL_MINUTES:-60}
+      
+      # Port
       - PORT=3000
     ports:
       - "3000:3000"
