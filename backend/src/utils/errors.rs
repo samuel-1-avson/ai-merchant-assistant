@@ -74,7 +74,7 @@ impl IntoResponse for ApiError {
             }
             ApiError::AIProcessingError(msg) => {
                 tracing::error!("AI processing error: {}", msg);
-                (StatusCode::UNPROCESSABLE_ENTITY, "Could not process voice input".to_string())
+                (StatusCode::SERVICE_UNAVAILABLE, "AI service temporarily unavailable".to_string())
             }
             ApiError::NotFound(msg) => {
                 (StatusCode::NOT_FOUND, msg)

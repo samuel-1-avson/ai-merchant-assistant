@@ -45,6 +45,8 @@ export function VoiceRecorder({ onSuccess, onError }: VoiceRecorderProps) {
     clearLastVoiceTransaction,
     pendingConfirmation,
     clearPendingConfirmation,
+    awaitingPrice,
+    clearAwaitingPrice,
   } = useDashboardStore()
 
   // ── Audio level visualizer ─────────────────────────────────────────
@@ -152,7 +154,12 @@ export function VoiceRecorder({ onSuccess, onError }: VoiceRecorderProps) {
 
         if (result.success) {
           if (result.type === 'pending') {
-            // Pending confirmation — PendingConfirmationCard will render below
+            setIsProcessing(false)
+            return
+          }
+
+          if (result.type === 'awaiting_price') {
+            // Saved without price — show prompt; backend will apply price on next recording
             setIsProcessing(false)
             return
           }
@@ -161,7 +168,6 @@ export function VoiceRecorder({ onSuccess, onError }: VoiceRecorderProps) {
           if (result.transcription) {
             setTranscription(result.transcription)
             onSuccess?.(`Transaction recorded: "${result.transcription}"`)
-            // Fix 2: Speak the confirmation back to the user
             await speakConfirmation(result.transcription)
           }
         } else {
@@ -184,18 +190,26 @@ export function VoiceRecorder({ onSuccess, onError }: VoiceRecorderProps) {
    * the text confirmation is still shown in the UI.
    */
   const speakConfirmation = async (transcriptionText: string) => {
+    const summary = buildTTSSummary(transcriptionText)
+    setIsSpeaking(true)
     try {
-      const summary = buildTTSSummary(transcriptionText)
-      setIsSpeaking(true)
       const resp = await voiceApi.synthesize(summary)
       if (resp.success && resp.data?.audio) {
         await voiceApi.playBase64Audio(resp.data.audio)
+        return
       }
     } catch {
-      // TTS failure is non-fatal — silently skip
-    } finally {
-      setIsSpeaking(false)
+      // backend TTS unavailable — fall through to Web Speech API
     }
+    // Fallback: browser-native TTS (no network required)
+    if (typeof window !== 'undefined' && window.speechSynthesis) {
+      const utterance = new SpeechSynthesisUtterance(summary)
+      utterance.onend = () => setIsSpeaking(false)
+      utterance.onerror = () => setIsSpeaking(false)
+      window.speechSynthesis.speak(utterance)
+      return
+    }
+    setIsSpeaking(false)
   }
 
   /** Build a short TTS phrase from the transcription. */
@@ -217,6 +231,33 @@ export function VoiceRecorder({ onSuccess, onError }: VoiceRecorderProps) {
   return (
     <div className="flex flex-col items-center gap-6 w-full">
 
+      {/* ── Awaiting price card ──────────────────────────────────────── */}
+      {awaitingPrice && !pendingConfirmation && (
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="w-full bg-amber-50 border border-amber-300 rounded-2xl p-4"
+        >
+          <div className="flex items-start gap-3">
+            <div className="w-8 h-8 bg-amber-100 rounded-lg flex items-center justify-center flex-shrink-0">
+              <span className="text-amber-600 text-lg font-bold">$</span>
+            </div>
+            <div className="flex-1">
+              <p className="text-sm font-semibold text-amber-900 mb-0.5">Price needed</p>
+              <p className="text-sm text-amber-700">
+                No price heard for <strong>{awaitingPrice.productName}</strong>. Tap the mic and say the price — e.g. &quot;The price was $20&quot;
+              </p>
+              <button
+                onClick={clearAwaitingPrice}
+                className="mt-2 text-xs text-amber-500 underline"
+              >
+                Skip
+              </button>
+            </div>
+          </div>
+        </motion.div>
+      )}
+
       {/* ── Pending confirmation card (Fix 3) ───────────────────────── */}
       {pendingConfirmation && (
         <div className="w-full">
@@ -225,6 +266,7 @@ export function VoiceRecorder({ onSuccess, onError }: VoiceRecorderProps) {
             onConfirmed={() => {
               onSuccess?.('Transaction confirmed and recorded.')
               speakConfirmation('Transaction confirmed.')
+              // Refresh handled by parent via onSuccess callback
             }}
             onRejected={() => onError?.('Transaction rejected.')}
           />

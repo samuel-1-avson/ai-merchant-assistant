@@ -46,6 +46,12 @@ pub enum VoiceProcessingResult {
     Immediate(VoiceTransactionResponse),
     /// Transaction awaits user confirmation (low confidence / new product).
     Pending(PendingConfirmation),
+    /// Transaction saved with $0 price — need a follow-up recording with the price.
+    AwaitingPrice {
+        transaction_id: Uuid,
+        product_name: String,
+        transcription: String,
+    },
 }
 
 // ── Orchestrator ──────────────────────────────────────────────────────────
@@ -135,9 +141,48 @@ impl AIOrchestrator {
             entities.price,
         ).await;
 
-        // Step 6 — Act on intent
+        // Step 6 — Check for price follow-up correction before acting on intent
+        //
+        // If the session has a pending no-price transaction AND the current input
+        // contains a price (but no product), treat it as a price correction.
+        {
+            let mut sess = self.session_store.get_session(user_id).await;
+            if let Some((pending_tx_id, pending_product)) = sess.last_transaction_without_price.clone() {
+                if let Some(price) = entities.price {
+                    // Only apply if this looks like a pure price statement (no new product name,
+                    // or the text contains correction keywords)
+                    let is_correction = entities.product.is_none()
+                        || Self::is_price_correction_text(&transcription.text);
+                    if is_correction {
+                        use rust_decimal::Decimal;
+                        use rust_decimal::prelude::FromPrimitive;
+                        let price_decimal = Decimal::from_f64(price).unwrap_or_default();
+                        if let Ok(Some(updated_tx)) = self.transaction_repo
+                            .update_price(pending_tx_id, user_id, price_decimal)
+                            .await
+                        {
+                            sess.take_pending_price_tx();
+                            sess.record_transaction(format!(
+                                "Price correction: {} @ ${:.2}", pending_product, price
+                            ));
+                            self.session_store.save_session(sess).await;
+                            info!("Applied price correction ${:.2} to transaction {}", price, pending_tx_id);
+                            return Ok(VoiceProcessingResult::Immediate(VoiceTransactionResponse {
+                                transaction: updated_tx,
+                                transcription: transcription.text,
+                                extracted_entities: entities,
+                            }));
+                        }
+                    }
+                }
+            }
+        }
+
+        // Step 7 — Act on intent
         match intent {
-            Intent::RecordSale => {
+            Intent::RecordSale | Intent::UpdateInventory => {
+                // UpdateInventory is treated as a sale — merchants say "new stock"
+                // to mean they just sold or received items.
                 self.handle_sale_intent(entities, user_id, transcription.text).await
             }
             Intent::QueryAnalytics => {
@@ -190,6 +235,20 @@ impl AIOrchestrator {
         let tx_result = self.transaction_agent
             .process_transaction(entities.clone(), user_id)
             .await?;
+
+        // If no price was detected, save the transaction and ask for price via follow-up
+        if entities.price.is_none() {
+            let product_name = entities.product.clone().unwrap_or_else(|| "item".to_string());
+            info!("No price detected for '{}' — requesting follow-up", product_name);
+            let mut sess = self.session_store.get_session(user_id).await;
+            sess.set_pending_price_tx(tx_result.transaction.id, product_name.clone());
+            self.session_store.save_session(sess).await;
+            return Ok(VoiceProcessingResult::AwaitingPrice {
+                transaction_id: tx_result.transaction.id,
+                product_name,
+                transcription,
+            });
+        }
 
         let summary = format!(
             "Sold {} {} of {} for ${:.2}",
@@ -359,6 +418,19 @@ impl AIOrchestrator {
                 Ok(None)
             }
         }
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────
+
+    /// Returns true if the text sounds like a price correction / addition.
+    fn is_price_correction_text(text: &str) -> bool {
+        let lower = text.to_lowercase();
+        let keywords = [
+            "forgot", "the price", "it costs", "it was", "that was",
+            "actually", "price is", "add price", "update price", "correction",
+            "it cost", "cost is", "costs $", "was $", "for $",
+        ];
+        keywords.iter().any(|k| lower.contains(k))
     }
 
     // ── Intent stubs ──────────────────────────────────────────────────

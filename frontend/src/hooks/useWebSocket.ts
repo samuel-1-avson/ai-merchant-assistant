@@ -55,7 +55,8 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
         clearTimeout(timer);
         unsubscribeConnected();
         unsubscribeError();
-        closeWebSocket();
+        // Don't destroy the singleton on page navigation — keep the connection
+        // alive so navigating between pages doesn't cause rapid disconnect/reconnect.
         setIsConnected(false);
         callbacksRef.current.onDisconnect?.();
       };

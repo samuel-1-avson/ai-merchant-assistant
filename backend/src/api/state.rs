@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use crate::ai::orchestrator::AIOrchestrator;
 use crate::alerts::{AlertEngine, notifier::NotificationHub};
+use crate::auth::JwtValidator;
 use crate::config::AppConfig;
 use crate::db::Database;
 use crate::ocr::OCRService;
@@ -14,6 +15,7 @@ use crate::services::analytics_service::AnalyticsService;
 pub struct AppState {
     pub config: AppConfig,
     pub db: Database,
+    pub jwt_validator: Arc<JwtValidator>,
     pub ai_orchestrator: Arc<AIOrchestrator>,
     pub notification_hub: Option<Arc<NotificationHub>>,
     pub alert_engine: Arc<AlertEngine>,

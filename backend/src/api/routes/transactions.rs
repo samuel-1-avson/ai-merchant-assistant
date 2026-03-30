@@ -134,6 +134,18 @@ pub async fn create_voice(
                 "message": "Please confirm this transaction"
             })))
         }
+        VoiceProcessingResult::AwaitingPrice { transaction_id, product_name, transcription } => {
+            Ok(Json(json!({
+                "success": true,
+                "data": {
+                    "type": "awaiting_price",
+                    "transaction_id": transaction_id,
+                    "product_name": product_name,
+                    "transcription": transcription,
+                },
+                "message": format!("Price not heard for '{}'. Tap the mic and say the price.", product_name)
+            })))
+        }
     }
 }
 

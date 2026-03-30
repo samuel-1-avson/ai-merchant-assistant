@@ -45,6 +45,7 @@ use crate::services::product_service::ProductService;
 use crate::services::user_service::UserService;
 use crate::services::analytics_service::AnalyticsService;
 use crate::api::middleware::auth::jwt_auth_middleware;
+use crate::auth::JwtValidator;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -134,10 +135,16 @@ async fn main() -> anyhow::Result<()> {
     let analytics_service = Arc::new(AnalyticsService::new(db.pool.clone()));
     info!("✅ Services initialized");
 
+    // Initialize JWT validator — fetch Supabase JWKS (ES256) with fallback to HS256
+    let jwt_validator = Arc::new(
+        build_jwt_validator(&config.supabase_url, &config.supabase_jwt_secret).await
+    );
+
     // Create shared state
     let state = Arc::new(AppState {
         config,
         db,
+        jwt_validator,
         ai_orchestrator,
         notification_hub: Some(notification_hub),
         alert_engine,
@@ -164,7 +171,9 @@ async fn main() -> anyhow::Result<()> {
         // i18n is public (no user data)
         .route("/api/v1/i18n/translations", get(api::routes::i18n::get_translations))
         .route("/api/v1/i18n/languages", get(api::routes::i18n::get_supported_languages))
-        .route("/api/v1/i18n/format-number", get(api::routes::i18n::format_number));
+        .route("/api/v1/i18n/format-number", get(api::routes::i18n::format_number))
+        // WebSocket: authenticates via ?token= query param inside the handler
+        .route("/ws", get(realtime::websocket::handler));
 
     // ── Protected routes (JWT required) ──────────────────────────────────
     let protected_routes = Router::new()
@@ -208,9 +217,6 @@ async fn main() -> anyhow::Result<()> {
         // AI Assistant chat
         .route("/api/v1/assistant/chat", post(api::routes::assistant::chat))
 
-        // WebSocket
-        .route("/ws", get(realtime::websocket::handler))
-
         // Apply JWT auth middleware to all routes in this group
         .layer(middleware::from_fn_with_state(state.clone(), jwt_auth_middleware));
 
@@ -237,4 +243,49 @@ async fn main() -> anyhow::Result<()> {
 
 async fn health_check() -> &'static str {
     "OK"
+}
+
+/// Build an ES256 JWT validator from Supabase JWKS.
+/// Priority: SUPABASE_JWKS env var → HTTP fetch → HS256 fallback.
+async fn build_jwt_validator(supabase_url: &str, fallback_secret: &str) -> JwtValidator {
+    // 1. Try SUPABASE_JWKS env var (avoids network call in containerised environments)
+    if let Ok(jwks_json) = std::env::var("SUPABASE_JWKS") {
+        match serde_json::from_str::<jsonwebtoken::jwk::JwkSet>(&jwks_json)
+            .map_err(|e| anyhow::anyhow!(e))
+            .and_then(|jwks| {
+                jwks.keys.into_iter().next()
+                    .ok_or_else(|| anyhow::anyhow!("JWKS env has no keys"))
+            })
+            .and_then(|jwk| JwtValidator::from_jwk(&jwk))
+        {
+            Ok(v) => {
+                info!("✅ JWT validator initialized from SUPABASE_JWKS env (ES256)");
+                return v;
+            }
+            Err(e) => tracing::warn!("SUPABASE_JWKS env var invalid: {}", e),
+        }
+    }
+
+    // 2. Try fetching JWKS from Supabase
+    let jwks_url = format!("{}/auth/v1/.well-known/jwks.json", supabase_url);
+    let result: anyhow::Result<JwtValidator> = async {
+        let resp = reqwest::get(&jwks_url).await
+            .map_err(|e| anyhow::anyhow!("JWKS fetch: {}", e))?;
+        let jwks: jsonwebtoken::jwk::JwkSet = resp.json().await
+            .map_err(|e| anyhow::anyhow!("JWKS parse: {}", e))?;
+        let jwk = jwks.keys.into_iter().next()
+            .ok_or_else(|| anyhow::anyhow!("JWKS has no keys"))?;
+        JwtValidator::from_jwk(&jwk)
+    }.await;
+
+    match result {
+        Ok(v) => {
+            info!("✅ JWT validator initialized from JWKS endpoint (ES256)");
+            v
+        }
+        Err(e) => {
+            tracing::warn!("⚠️  JWKS unavailable ({}), falling back to HS256", e);
+            JwtValidator::from_secret(fallback_secret)
+        }
+    }
 }

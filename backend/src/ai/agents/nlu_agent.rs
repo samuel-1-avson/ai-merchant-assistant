@@ -102,19 +102,27 @@ Extract EVERY product mentioned. If total is given, calculate individual prices 
         self.client.generate(prompt).await
     }
 
-    /// Check if text contains multiple products
+    /// Check if text contains multiple products.
+    ///
+    /// Requires strong signals to avoid false positives — a single comma like
+    /// "sold 3 shirts, price $45" must NOT trigger multi-product parsing.
     pub fn contains_multiple_products(text: &str) -> bool {
-        let indicators = [" and ", ",", " plus ", " with ", "&"];
         let lower = text.to_lowercase();
 
-        let count = indicators.iter()
-            .filter(|&&indicator| lower.contains(indicator))
+        // Explicit multi-item connectors
+        let indicators = [" and ", " plus ", "&", " also "];
+        let indicator_count = indicators.iter()
+            .filter(|&&ind| lower.contains(ind))
             .count();
 
-        let quantity_pattern = regex::Regex::new(r"\d+\s*(?:x|×|pieces?|units?|pcs?)").unwrap();
-        let quantity_matches: Vec<_> = quantity_pattern.find_iter(&lower).collect();
+        // Quantity+unit patterns (e.g. "3 kg", "5 bottles", "2x")
+        let quantity_pattern = regex::Regex::new(
+            r"\d+\s*(?:x\b|×|pieces?|units?|pcs?|kg\b|grams?|liter|bottle|crate|dozen|bag|box)"
+        ).unwrap();
+        let quantity_count = quantity_pattern.find_iter(&lower).count();
 
-        count > 0 || quantity_matches.len() > 1
+        // Trigger only with strong evidence of multiple distinct items
+        quantity_count >= 2 || (indicator_count >= 1 && quantity_count >= 1)
     }
 
     // ── Rule-based fallbacks ───────────────────────────────────────────

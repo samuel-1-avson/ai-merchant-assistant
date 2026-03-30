@@ -374,7 +374,18 @@ export default function Dashboard() {
                 </div>
               </div>
               <div data-recorder="voice">
-                <VoiceRecorder onSuccess={(msg) => success(msg)} onError={(msg) => error(msg)} />
+                <VoiceRecorder
+                  onSuccess={(msg) => {
+                    success(msg)
+                    // Refresh dashboard data after a transaction is recorded
+                    setTimeout(() => {
+                      fetchTransactions({ limit: 10, offset: 0 })
+                      fetchAnalytics(7)
+                      fetchInsights()
+                    }, 500)
+                  }}
+                  onError={(msg) => error(msg)}
+                />
               </div>
               
               {/* Quick Tips */}

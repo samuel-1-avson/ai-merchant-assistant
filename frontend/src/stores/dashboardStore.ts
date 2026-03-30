@@ -48,6 +48,9 @@ interface DashboardState {
   pendingConfirmation: PendingConfirmation | null
   confirmationLoading: boolean
 
+  // Awaiting price follow-up
+  awaitingPrice: { transactionId: string; productName: string; transcription: string } | null
+
   // ── Actions ──────────────────────────────────────────────────────────
 
   fetchAnalytics: (days?: number) => Promise<void>
@@ -72,6 +75,7 @@ interface DashboardState {
   createVoiceTransaction: (audioBase64: string) => Promise<(VoiceTransactionResult & { success: boolean })>
 
   clearLastVoiceTransaction: () => void
+  clearAwaitingPrice: () => void
 
   /** Confirm the active pending transaction and commit it to the database. */
   confirmPendingTransaction: () => Promise<boolean>
@@ -97,6 +101,7 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
   lastTranscription: null,
   pendingConfirmation: null,
   confirmationLoading: false,
+  awaitingPrice: null,
 
   // ── Analytics ────────────────────────────────────────────────────────
 
@@ -215,8 +220,23 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
 
       if (result.type === 'pending' && result.pending_confirmation) {
         // Backend needs user confirmation before committing
-        set({ pendingConfirmation: result.pending_confirmation })
+        set({ pendingConfirmation: result.pending_confirmation, awaitingPrice: null })
         return { success: true, ...result }
+      }
+
+      if (result.type === 'awaiting_price') {
+        // Transaction saved without price — ask user to record the price
+        set({
+          awaitingPrice: {
+            transactionId: result.transaction_id ?? '',
+            productName: result.product_name ?? '',
+            transcription: result.transcription ?? '',
+          },
+          lastTranscription: result.transcription ?? null,
+          pendingConfirmation: null,
+        })
+        get().fetchTransactions()
+        return { success: true, ...result, type: 'awaiting_price' as const }
       }
 
       // Transaction committed immediately
@@ -225,6 +245,7 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
           lastVoiceTransaction: result.transaction,
           lastTranscription: result.transcription ?? null,
           pendingConfirmation: null,
+          awaitingPrice: null,
         })
         get().fetchTransactions()
         get().fetchAnalytics()
@@ -239,6 +260,10 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
 
   clearLastVoiceTransaction: () => {
     set({ lastVoiceTransaction: null, lastTranscription: null })
+  },
+
+  clearAwaitingPrice: () => {
+    set({ awaitingPrice: null })
   },
 
   // ── Pending confirmation ──────────────────────────────────────────────

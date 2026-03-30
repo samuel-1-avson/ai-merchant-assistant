@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { Layout } from '@/components/layout/Layout'
 import { Bell, Check, AlertTriangle, Info, AlertCircle, RefreshCw } from 'lucide-react'
+import { alertsApi } from '@/lib/api/client'
 
 interface Alert {
   id: string
@@ -27,10 +28,9 @@ export default function AlertsPage() {
   const fetchAlerts = async () => {
     setIsLoading(true)
     try {
-      const res = await fetch('http://localhost:8888/api/v1/alerts')
-      const data = await res.json()
-      if (data.success) {
-        setAlerts(data.data)
+      const result = await alertsApi.list()
+      if (result.success && result.data) {
+        setAlerts((result.data as any).alerts || [])
       }
     } catch (error) {
       console.error('Error fetching alerts:', error)
@@ -41,7 +41,7 @@ export default function AlertsPage() {
 
   const markAsRead = async (id: string) => {
     try {
-      await fetch(`http://localhost:8888/api/v1/alerts/${id}/read`, { method: 'POST' })
+      await alertsApi.markRead(id)
       setAlerts(alerts.map(a => a.id === id ? { ...a, is_read: true } : a))
     } catch (error) {
       console.error('Error marking alert as read:', error)
@@ -51,7 +51,7 @@ export default function AlertsPage() {
   const checkNow = async () => {
     setIsLoading(true)
     try {
-      await fetch('http://localhost:8888/api/v1/alerts/check', { method: 'POST' })
+      await alertsApi.checkNow()
       await fetchAlerts()
     } catch (error) {
       console.error('Error checking alerts:', error)

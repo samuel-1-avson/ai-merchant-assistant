@@ -89,10 +89,13 @@ export interface PendingConfirmation {
 }
 
 export interface VoiceTransactionResult {
-  /** 'immediate' = transaction committed; 'pending' = awaiting user confirmation */
-  type: 'immediate' | 'pending'
+  /** 'immediate' = transaction committed; 'pending' = awaiting user confirmation; 'awaiting_price' = price not heard */
+  type: 'immediate' | 'pending' | 'awaiting_price'
   transaction?: Transaction
   transcription?: string
   extracted_entities?: PendingConfirmation['extracted_entities']
   pending_confirmation?: PendingConfirmation
+  /** Present when type === 'awaiting_price' */
+  transaction_id?: string
+  product_name?: string
 }

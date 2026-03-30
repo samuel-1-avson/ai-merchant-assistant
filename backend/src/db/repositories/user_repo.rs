@@ -183,6 +183,27 @@ impl UserRepository {
         Ok(())
     }
 
+    /// Upsert a Supabase OAuth user using their exact Supabase UUID.
+    ///
+    /// Called on every authenticated request to ensure the user row exists
+    /// before any FK-dependent insert (transactions, products, etc.).
+    /// ON CONFLICT DO NOTHING makes this a cheap no-op after the first call.
+    pub async fn upsert_supabase_user(&self, id: Uuid, email: &str) -> anyhow::Result<()> {
+        sqlx::query(
+            r#"
+            INSERT INTO users (id, email, email_verified, created_at, updated_at)
+            VALUES ($1, $2, true, NOW(), NOW())
+            ON CONFLICT DO NOTHING
+            "#
+        )
+        .bind(id)
+        .bind(email)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
     /// Mark email as verified
     pub async fn mark_email_verified(&self, user_id: Uuid) -> anyhow::Result<()> {
         sqlx::query(

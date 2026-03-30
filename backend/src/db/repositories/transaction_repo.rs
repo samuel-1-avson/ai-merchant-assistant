@@ -29,7 +29,9 @@ impl TransactionRepository {
     pub async fn get_by_id(&self, id: Uuid, user_id: Uuid) -> anyhow::Result<Option<Transaction>> {
         let row = sqlx::query(
             r#"
-            SELECT t.id, t.user_id, t.product_id, t.quantity, t.unit, t.price, t.total,
+            SELECT t.id, t.user_id, t.product_id,
+                   t.quantity::float8 as quantity, t.unit,
+                   t.price::float8 as price, t.total::float8 as total,
                    t.notes, t.voice_recording_url, t.created_at, t.updated_at,
                    p.name AS product_name
             FROM transactions t
@@ -59,7 +61,9 @@ impl TransactionRepository {
         offset: i64,
     ) -> anyhow::Result<Vec<Transaction>> {
         let mut query = String::from(
-            "SELECT t.id, t.user_id, t.product_id, t.quantity, t.unit, t.price, t.total, \
+            "SELECT t.id, t.user_id, t.product_id, \
+             t.quantity::float8 as quantity, t.unit, \
+             t.price::float8 as price, t.total::float8 as total, \
              t.notes, t.voice_recording_url, t.created_at, t.updated_at, p.name AS product_name \
              FROM transactions t LEFT JOIN products p ON t.product_id = p.id \
              WHERE t.user_id = $1"
@@ -105,7 +109,10 @@ impl TransactionRepository {
             r#"
             INSERT INTO transactions (id, user_id, product_id, quantity, unit, price, total, notes)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-            RETURNING id, user_id, product_id, quantity, unit, price, total, notes, voice_recording_url, created_at, updated_at
+            RETURNING id, user_id, product_id,
+                      quantity::float8 as quantity, unit,
+                      price::float8 as price, total::float8 as total,
+                      notes, voice_recording_url, created_at, updated_at
             "#
         )
         .bind(id)
@@ -128,11 +135,14 @@ impl TransactionRepository {
 
         let row = sqlx::query(
             r#"
-            UPDATE transactions 
-            SET product_id = $1, quantity = $2, unit = $3, price = $4, 
+            UPDATE transactions
+            SET product_id = $1, quantity = $2, unit = $3, price = $4,
                 total = $5, notes = $6, updated_at = NOW()
             WHERE id = $7 AND user_id = $8
-            RETURNING id, user_id, product_id, quantity, unit, price, total, notes, voice_recording_url, created_at, updated_at
+            RETURNING id, user_id, product_id,
+                      quantity::float8 as quantity, unit,
+                      price::float8 as price, total::float8 as total,
+                      notes, voice_recording_url, created_at, updated_at
             "#
         )
         .bind(tx.product_id)
@@ -141,6 +151,31 @@ impl TransactionRepository {
         .bind(tx.price.to_f64().unwrap_or(0.0))
         .bind(total.to_f64().unwrap_or(0.0))
         .bind(&tx.notes)
+        .bind(id)
+        .bind(user_id)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        match row {
+            Some(r) => Ok(Some(self.row_to_transaction(&r)?)),
+            None => Ok(None),
+        }
+    }
+
+    /// Update only the price (and recalculate total) for a transaction
+    pub async fn update_price(&self, id: Uuid, user_id: Uuid, price: Decimal) -> anyhow::Result<Option<Transaction>> {
+        let row = sqlx::query(
+            r#"
+            UPDATE transactions
+            SET price = $1, total = quantity * $1, updated_at = NOW()
+            WHERE id = $2 AND user_id = $3
+            RETURNING id, user_id, product_id,
+                      quantity::float8 as quantity, unit,
+                      price::float8 as price, total::float8 as total,
+                      notes, voice_recording_url, created_at, updated_at
+            "#
+        )
+        .bind(price.to_f64().unwrap_or(0.0))
         .bind(id)
         .bind(user_id)
         .fetch_optional(&self.pool)
@@ -169,10 +204,10 @@ impl TransactionRepository {
 
         let rows = sqlx::query(
             r#"
-            SELECT 
+            SELECT
                 DATE(created_at) as date,
                 COUNT(*) as transaction_count,
-                SUM(total) as total_amount
+                SUM(total)::float8 as total_amount
             FROM transactions
             WHERE user_id = $1 AND created_at >= $2
             GROUP BY DATE(created_at)
@@ -199,7 +234,9 @@ impl TransactionRepository {
     pub async fn list_by_user(&self, user_id: Uuid, limit: i64, offset: i64) -> anyhow::Result<Vec<Transaction>> {
         let rows = sqlx::query(
             r#"
-            SELECT t.id, t.user_id, t.product_id, t.quantity, t.unit, t.price, t.total,
+            SELECT t.id, t.user_id, t.product_id,
+                   t.quantity::float8 as quantity, t.unit,
+                   t.price::float8 as price, t.total::float8 as total,
                    t.notes, t.voice_recording_url, t.created_at, t.updated_at,
                    p.name AS product_name
             FROM transactions t
@@ -227,7 +264,9 @@ impl TransactionRepository {
     ) -> anyhow::Result<Vec<Transaction>> {
         let rows = sqlx::query(
             r#"
-            SELECT t.id, t.user_id, t.product_id, t.quantity, t.unit, t.price, t.total,
+            SELECT t.id, t.user_id, t.product_id,
+                   t.quantity::float8 as quantity, t.unit,
+                   t.price::float8 as price, t.total::float8 as total,
                    t.notes, t.voice_recording_url, t.created_at, t.updated_at,
                    p.name AS product_name
             FROM transactions t

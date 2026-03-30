@@ -4,6 +4,7 @@ use rust_decimal::prelude::FromPrimitive;
 use tracing::{error, info, warn};
 
 use crate::models::transaction::{ExtractedEntities, MultiProductEntities, ExtractedItem, Transaction, CreateTransactionRequest};
+use crate::models::product::CreateProductRequest;
 use crate::db::repositories::transaction_repo::TransactionRepository;
 use crate::db::repositories::product_repo::{ProductRepository, ProductMatch};
 
@@ -57,8 +58,8 @@ impl TransactionAgent {
     ) -> anyhow::Result<TransactionResult> {
         info!("Processing transaction for user {}: {:?}", user_id, entities);
 
-        // Find product using fuzzy matching
-        let (product_id, product_match, is_new_product) = 
+        // Find product using fuzzy matching; auto-create if not found
+        let (product_id, product_match, is_new_product) =
             if let Some(product_name) = &entities.product {
                 match self.product_repo.find_best_match(user_id, product_name, Some(60)).await? {
                     Some(best_match) => {
@@ -69,11 +70,29 @@ impl TransactionAgent {
                         (Some(best_match.product.id), Some(best_match), false)
                     }
                     None => {
-                        warn!(
-                            "No matching product found for '{}' - will create transaction without product link",
-                            product_name
-                        );
-                        (None, None, true)
+                        // Auto-create product so it appears in the products catalogue
+                        let unit = entities.unit.clone().unwrap_or_else(|| "piece".to_string());
+                        let default_price = entities.price
+                            .and_then(|p| rust_decimal::Decimal::from_f64(p));
+                        match self.product_repo.create(user_id, CreateProductRequest {
+                            name: product_name.clone(),
+                            description: None,
+                            sku: None,
+                            default_price,
+                            cost_price: None,
+                            unit: Some(unit),
+                            stock_quantity: None,
+                            low_stock_threshold: None,
+                        }).await {
+                            Ok(product) => {
+                                info!("Auto-created product '{}' from voice transaction", product_name);
+                                (Some(product.id), None, true)
+                            }
+                            Err(e) => {
+                                warn!("Failed to auto-create product '{}': {}", product_name, e);
+                                (None, None, true)
+                            }
+                        }
                     }
                 }
             } else {
@@ -90,7 +109,7 @@ impl TransactionAgent {
             product_id,
             quantity: entities.quantity.map(|q| rust_decimal::Decimal::from_f64(q).unwrap_or_default())
                 .unwrap_or_else(|| rust_decimal::Decimal::from(1i32)),
-            unit: entities.unit.clone(),
+            unit: Some(entities.unit.clone().unwrap_or_else(|| "piece".to_string())),
             price: entities.price.map(|p| rust_decimal::Decimal::from_f64(p).unwrap_or_default())
                 .unwrap_or_default(),
             notes: entities.product.clone().map(|name| {
@@ -170,8 +189,8 @@ impl TransactionAgent {
         item: &ExtractedItem,
         user_id: Uuid,
     ) -> anyhow::Result<SingleItemResult> {
-        // Find product using fuzzy matching
-        let (product_id, product_match, is_new_product) = 
+        // Find product using fuzzy matching; auto-create if not found
+        let (product_id, product_match, is_new_product) =
             match self.product_repo.find_best_match(user_id, &item.product, Some(60)).await? {
                 Some(best_match) => {
                     info!(
@@ -181,11 +200,28 @@ impl TransactionAgent {
                     (Some(best_match.product.id), Some(best_match), false)
                 }
                 None => {
-                    warn!(
-                        "No matching product found for '{}' - will create transaction without product link",
-                        item.product
-                    );
-                    (None, None, true)
+                    let unit = item.unit.clone().unwrap_or_else(|| "piece".to_string());
+                    let default_price = item.price
+                        .and_then(|p| rust_decimal::Decimal::from_f64(p));
+                    match self.product_repo.create(user_id, CreateProductRequest {
+                        name: item.product.clone(),
+                        description: None,
+                        sku: None,
+                        default_price,
+                        cost_price: None,
+                        unit: Some(unit),
+                        stock_quantity: None,
+                        low_stock_threshold: None,
+                    }).await {
+                        Ok(product) => {
+                            info!("Auto-created product '{}' from multi-item voice", item.product);
+                            (Some(product.id), None, true)
+                        }
+                        Err(e) => {
+                            warn!("Failed to auto-create product '{}': {}", item.product, e);
+                            (None, None, true)
+                        }
+                    }
                 }
             };
 
@@ -205,7 +241,7 @@ impl TransactionAgent {
         let request = CreateTransactionRequest {
             product_id,
             quantity,
-            unit: item.unit.clone(),
+            unit: Some(item.unit.clone().unwrap_or_else(|| "piece".to_string())),
             price: unit_price,
             notes: Some(format!("Multi-item transaction: {}", item.product)),
         };

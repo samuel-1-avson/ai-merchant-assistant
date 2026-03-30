@@ -4,22 +4,35 @@
  */
 
 import { Transaction, Product, AnalyticsSummary, User, PendingConfirmation, VoiceTransactionResult } from '@/types'
+import { useAuthStore } from '@/stores/authStore'
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8888/api/v1'
 
-// Get auth token from Zustand persist storage (key: 'auth-storage')
+// Get auth token from the Zustand in-memory store (always fresh, no localStorage timing issues)
+// Falls back to Supabase's own internal storage if the store token is null
 function getAuthToken(): string | null {
+  // 1. Zustand in-memory store — this is updated synchronously by onAuthStateChange
+  const storeToken = useAuthStore.getState().token
+  if (storeToken) return storeToken
+
+  // 2. Supabase's own internal storage (key: sb-<projectRef>-auth-token)
+  //    Used as fallback in case Zustand hasn't hydrated yet on first load
   if (typeof window !== 'undefined') {
     try {
-      const stored = localStorage.getItem('auth-storage')
-      if (stored) {
-        const parsed = JSON.parse(stored)
-        return parsed?.state?.token ?? null
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i)
+        if (key && key.startsWith('sb-') && key.endsWith('-auth-token')) {
+          const raw = localStorage.getItem(key)
+          if (raw) {
+            const parsed = JSON.parse(raw)
+            const token = parsed?.access_token
+            if (token) return token
+          }
+        }
       }
-    } catch {
-      // ignore parse errors
-    }
+    } catch { /* ignore */ }
   }
+
   return null
 }
 
@@ -44,16 +57,22 @@ async function fetchApi<T>(
       headers,
     })
 
-    const result = await response.json()
+    // Some error responses (e.g. 401 from middleware) have an empty body
+    const contentType = response.headers.get('content-type') || ''
+    const hasJson = contentType.includes('application/json')
+    const result = hasJson ? await response.json() : null
 
-    if (!response.ok || !result.success) {
+    if (!response.ok || (result && !result.success)) {
+      if (response.status === 401) {
+        return { success: false, error: 'Unauthorized — please log in again' }
+      }
       return {
         success: false,
-        error: result.error || `HTTP ${response.status}: ${response.statusText}`,
+        error: result?.error || `HTTP ${response.status}: ${response.statusText}`,
       }
     }
 
-    return { success: true, data: result.data }
+    return { success: true, data: result?.data }
   } catch (error) {
     console.error('API Error:', error)
     return {
@@ -272,6 +291,26 @@ export const assistantApi = {
       method: 'POST',
       body: JSON.stringify({ message, history }),
     })
+  },
+}
+
+// Alerts API
+export const alertsApi = {
+  list: async (unreadOnly?: boolean): Promise<{ success: boolean; data?: { alerts: unknown[]; counts: unknown }; error?: string }> => {
+    const q = unreadOnly ? '?unread_only=true' : ''
+    return fetchApi(`/alerts${q}`)
+  },
+  markRead: async (id: string): Promise<{ success: boolean; error?: string }> => {
+    return fetchApi(`/alerts/${id}/read`, { method: 'POST' })
+  },
+  markAllRead: async (): Promise<{ success: boolean; error?: string }> => {
+    return fetchApi('/alerts/read-all', { method: 'POST' })
+  },
+  checkNow: async (): Promise<{ success: boolean; error?: string }> => {
+    return fetchApi('/alerts/check', { method: 'POST' })
+  },
+  counts: async (): Promise<{ success: boolean; data?: { total_unread: number; critical: number; warning: number; info: number }; error?: string }> => {
+    return fetchApi('/alerts/counts')
   },
 }
 

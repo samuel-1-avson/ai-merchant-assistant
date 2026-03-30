@@ -12,7 +12,6 @@ use uuid::Uuid;
 
 use crate::api::state::AppState;
 use crate::alerts::notifier::{NotificationEvent, NotificationHub};
-use crate::auth::JwtValidator;
 
 /// WebSocket connection query parameters
 #[derive(Debug, Deserialize)]
@@ -70,8 +69,7 @@ pub async fn handler(
 
 /// Authenticate JWT token and return user_id
 fn authenticate_token(token: &str, state: &AppState) -> anyhow::Result<Uuid> {
-    let validator = JwtValidator::new(&state.config.supabase_jwt_secret);
-    let claims = validator.validate(token)?;
+    let claims = state.jwt_validator.validate(token)?;
     let user_id = Uuid::parse_str(&claims.sub)?;
     Ok(user_id)
 }
@@ -310,6 +308,20 @@ async fn handle_binary_data(
                         "type": "pending_confirmation",
                         "confirmation_id": confirmation.id,
                         "confirmation": confirmation,
+                    }),
+                };
+                if let Ok(json) = serde_json::to_string(&ws_response) {
+                    let _ = tx.send(json).await;
+                }
+            }
+            Ok(VoiceProcessingResult::AwaitingPrice { transaction_id, product_name, transcription }) => {
+                let ws_response = WsResponse::VoiceResult {
+                    transcription: transcription.clone(),
+                    intent: json!({
+                        "type": "awaiting_price",
+                        "transaction_id": transaction_id,
+                        "product_name": product_name,
+                        "transcription": transcription,
                     }),
                 };
                 if let Ok(json) = serde_json::to_string(&ws_response) {

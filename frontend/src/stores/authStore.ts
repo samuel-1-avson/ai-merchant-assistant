@@ -262,11 +262,12 @@ export const useAuthStore = create<AuthState>()(
 if (typeof window !== 'undefined') {
   onAuthStateChange((event, session) => {
     console.log('Auth state changed:', event)
-    
+
     if (event === 'SIGNED_OUT') {
       useAuthStore.getState().logout()
-    } else if (event === 'SIGNED_IN' && session) {
-      // This is handled by the callback page
+    } else if ((event === 'TOKEN_REFRESHED' || event === 'SIGNED_IN') && session) {
+      // Keep the persisted token in sync when Supabase refreshes it
+      useAuthStore.setState({ token: session.access_token, isAuthenticated: true })
     }
   })
 }

@@ -38,7 +38,9 @@ impl ProductRepository {
             r#"
             INSERT INTO products (id, user_id, name, description, sku, default_price, cost_price, unit, stock_quantity, low_stock_threshold, is_active, created_at, updated_at)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, true, NOW(), NOW())
-            RETURNING id, user_id, name, description, sku, default_price, cost_price, unit, stock_quantity, low_stock_threshold, is_active, image_url, created_at, updated_at
+            RETURNING id, user_id, name, description, sku,
+                      default_price::float8 as default_price, cost_price::float8 as cost_price,
+                      unit, stock_quantity, low_stock_threshold, is_active, image_url, created_at, updated_at
             "#
         )
         .bind(id)
@@ -60,9 +62,10 @@ impl ProductRepository {
     pub async fn list_by_user(&self, user_id: Uuid) -> anyhow::Result<Vec<Product>> {
         let rows = sqlx::query(
             r#"
-            SELECT id, user_id, name, description, sku, default_price, cost_price, unit, 
-                   stock_quantity, low_stock_threshold, is_active, image_url, created_at, updated_at
-            FROM products 
+            SELECT id, user_id, name, description, sku,
+                   default_price::float8 as default_price, cost_price::float8 as cost_price,
+                   unit, stock_quantity, low_stock_threshold, is_active, image_url, created_at, updated_at
+            FROM products
             WHERE user_id = $1 AND is_active = true
             ORDER BY name ASC
             "#
@@ -81,10 +84,11 @@ impl ProductRepository {
     ) -> anyhow::Result<Option<Product>> {
         let row = sqlx::query(
             r#"
-            SELECT id, user_id, name, description, sku, default_price, cost_price, unit, 
-                   stock_quantity, low_stock_threshold, is_active, image_url, created_at, updated_at
-            FROM products 
-            WHERE user_id = $1 
+            SELECT id, user_id, name, description, sku,
+                   default_price::float8 as default_price, cost_price::float8 as cost_price,
+                   unit, stock_quantity, low_stock_threshold, is_active, image_url, created_at, updated_at
+            FROM products
+            WHERE user_id = $1
             AND LOWER(name) = LOWER($2)
             AND is_active = true
             LIMIT 1
@@ -108,10 +112,11 @@ impl ProductRepository {
     ) -> anyhow::Result<Vec<Product>> {
         let rows = sqlx::query(
             r#"
-            SELECT id, user_id, name, description, sku, default_price, cost_price, unit, 
-                   stock_quantity, low_stock_threshold, is_active, image_url, created_at, updated_at
-            FROM products 
-            WHERE user_id = $1 
+            SELECT id, user_id, name, description, sku,
+                   default_price::float8 as default_price, cost_price::float8 as cost_price,
+                   unit, stock_quantity, low_stock_threshold, is_active, image_url, created_at, updated_at
+            FROM products
+            WHERE user_id = $1
             AND LOWER(name) LIKE LOWER($2)
             AND is_active = true
             ORDER BY name ASC

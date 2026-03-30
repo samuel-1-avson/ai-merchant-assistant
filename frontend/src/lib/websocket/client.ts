@@ -60,8 +60,8 @@ export class WebSocketClient {
     this.isConnecting = true;
     this.isIntentionallyClosed = false;
 
-    // Get auth token
-    const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+    // Get auth token from Zustand store (always has current Supabase JWT)
+    const token = typeof window !== 'undefined' ? useAuthStore.getState().token : null;
     const url = token ? `${this.url}?token=${encodeURIComponent(token)}` : this.url;
 
     console.log('[WebSocket] Connecting...');

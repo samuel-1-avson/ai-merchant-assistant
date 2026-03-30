@@ -45,24 +45,23 @@ export default function TransactionsPage() {
   const fetchTransactions = useCallback(async () => {
     setIsLoading(true)
     try {
-      const result = await transactionsApi.list({ 
-        limit, 
-        offset: currentPage * limit 
+      const result = await transactionsApi.list({
+        limit,
+        offset: currentPage * limit
       })
-      
+
       if (result.success && result.data?.transactions) {
         setTransactions(result.data.transactions)
         setTotalCount(result.data.meta?.count || result.data.transactions.length)
       } else {
-        error(result.error || 'Failed to fetch transactions')
+        console.error('Failed to fetch transactions:', result.error)
       }
     } catch (err) {
-      error('An error occurred while fetching transactions')
-      console.error(err)
+      console.error('An error occurred while fetching transactions', err)
     } finally {
       setIsLoading(false)
     }
-  }, [currentPage, error])
+  }, [currentPage])
 
   useEffect(() => {
     fetchTransactions()

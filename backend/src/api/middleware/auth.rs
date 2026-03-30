@@ -8,7 +8,6 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::api::state::AppState;
-use crate::auth::JwtValidator;
 
 /// Extension to store authenticated user info in request
 #[derive(Clone, Debug)]
@@ -43,11 +42,13 @@ pub async fn jwt_auth_middleware(
         None => return Err(StatusCode::UNAUTHORIZED),
     };
 
-    // Validate JWT using Supabase JWT secret
-    let validator = JwtValidator::new(&state.config.supabase_jwt_secret);
-    let claims = match validator.validate(&token) {
+    // Validate JWT using the pre-built validator in AppState
+    let claims = match state.jwt_validator.validate(&token) {
         Ok(claims) => claims,
-        Err(_) => return Err(StatusCode::UNAUTHORIZED),
+        Err(e) => {
+            tracing::warn!("JWT validation failed: {}", e);
+            return Err(StatusCode::UNAUTHORIZED);
+        }
     };
 
     // Parse user ID
@@ -56,10 +57,12 @@ pub async fn jwt_auth_middleware(
         Err(_) => return Err(StatusCode::UNAUTHORIZED),
     };
 
+    let email = claims.email.unwrap_or_default();
+
     // Add user info to request extensions
     let auth_user = AuthUser {
         user_id,
-        email: claims.email.unwrap_or_default(),
+        email,
     };
     request.extensions_mut().insert(auth_user);
 
@@ -78,8 +81,7 @@ pub async fn optional_auth_middleware(
     next: Next,
 ) -> Response {
     if let Some(token) = extract_token_from_header(&request) {
-        let validator = JwtValidator::new(&state.config.supabase_jwt_secret);
-        if let Ok(claims) = validator.validate(&token) {
+        if let Ok(claims) = state.jwt_validator.validate(&token) {
             if let Ok(user_id) = Uuid::parse_str(&claims.sub) {
                 let auth_user = AuthUser {
                     user_id,

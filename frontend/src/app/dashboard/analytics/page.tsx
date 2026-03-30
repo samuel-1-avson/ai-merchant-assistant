@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { Layout } from '@/components/layout/Layout'
 import { TrendingUp, TrendingDown, DollarSign, ShoppingCart, AlertCircle } from 'lucide-react'
+import { analyticsApi } from '@/lib/api/client'
 
 interface AnalyticsData {
   total_revenue: number
@@ -48,26 +49,15 @@ export default function AnalyticsPage() {
   const fetchAnalytics = async () => {
     setIsLoading(true)
     try {
-      // Fetch analytics summary
-      const summaryRes = await fetch(`http://localhost:8888/api/v1/analytics/summary?days=${period}`)
-      const summaryData = await summaryRes.json()
-      if (summaryData.success) {
-        setAnalytics(summaryData.data)
-      }
-
-      // Fetch trends
-      const trendsRes = await fetch(`http://localhost:8888/api/v1/analytics/trends?days=${period}`)
-      const trendsData = await trendsRes.json()
-      if (trendsData.success) {
-        setTrends(trendsData.data)
-      }
-
-      // Fetch insights
-      const insightsRes = await fetch('http://localhost:8888/api/v1/analytics/insights')
-      const insightsData = await insightsRes.json()
-      if (insightsData.success) {
-        setInsights(insightsData.data)
-      }
+      const days = Number(period)
+      const [summaryResult, trendsResult, insightsResult] = await Promise.all([
+        analyticsApi.getSummary(days),
+        analyticsApi.getTrends(days),
+        analyticsApi.getInsights(),
+      ])
+      if (summaryResult.success && summaryResult.data) setAnalytics(summaryResult.data as any)
+      if (trendsResult.success && trendsResult.data) setTrends(trendsResult.data as any)
+      if (insightsResult.success && insightsResult.data) setInsights(insightsResult.data)
     } catch (error) {
       console.error('Error fetching analytics:', error)
     } finally {

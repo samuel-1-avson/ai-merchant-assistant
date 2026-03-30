@@ -81,18 +81,30 @@ impl CloudLLMClient for GroqClient {
 
     async fn extract_entities(&self, text: &str) -> Result<crate::models::transaction::ExtractedEntities, AIError> {
         let prompt = format!(
-            r#"Extract entities from this sales transaction text: "{}"
+            r#"You are a merchant sales assistant. Extract sales entities from this text: "{}"
 
-Respond ONLY with valid JSON in this exact format:
+Rules:
+- "product": the item name being sold (NOT numbers or prices). If only a price is mentioned with no product, use null.
+- "quantity": how many units were sold (default 1 if not stated)
+- "unit": the measurement unit (piece, kg, crate, dozen, bottle, etc.) — use null if not mentioned
+- "price": the unit price as a NUMBER ONLY (e.g. 45 not "$45"). Use null if no price is mentioned.
+- "currency": "USD" by default unless another currency is stated
+
+Examples:
+- "sold 3 shirts at $45 each" → {{"product":"shirts","quantity":3,"unit":"piece","price":45,"currency":"USD"}}
+- "egg crate, no price yet" → {{"product":"egg crate","quantity":1,"unit":"crate","price":null,"currency":"USD"}}
+- "the price was $20" → {{"product":null,"quantity":null,"unit":null,"price":20,"currency":"USD"}}
+- "five hoodies at $80" → {{"product":"hoodie","quantity":5,"unit":"piece","price":80,"currency":"USD"}}
+- "new order 2 caps" → {{"product":"caps","quantity":2,"unit":"piece","price":null,"currency":"USD"}}
+
+Respond ONLY with valid JSON, no explanation:
 {{
     "product": "product name or null",
     "quantity": number or null,
-    "unit": "unit (piece, kg, crate, etc.) or null",
+    "unit": "unit or null",
     "price": number or null,
-    "currency": "USD, EUR, etc. or null"
-}}
-
-If any field is not found, use null."#,
+    "currency": "USD"
+}}"#,
             text
         );
 

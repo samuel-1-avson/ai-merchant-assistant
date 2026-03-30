@@ -32,6 +32,9 @@ pub struct ConversationSession {
     pub last_quantity: Option<f64>,
     /// Last price mentioned
     pub last_price: Option<f64>,
+    /// Transaction saved without a price — awaiting a follow-up price recording.
+    /// Tuple: (transaction_id, product_name)
+    pub last_transaction_without_price: Option<(Uuid, String)>,
     /// When this session was last accessed
     pub last_active: Instant,
 }
@@ -45,6 +48,7 @@ impl ConversationSession {
             last_product: None,
             last_quantity: None,
             last_price: None,
+            last_transaction_without_price: None,
             last_active: Instant::now(),
         }
     }
@@ -83,6 +87,19 @@ impl ConversationSession {
             "Recent transactions in this session:\n{}\n\n",
             history.join("\n")
         )
+    }
+
+    /// Store a transaction that was saved without a price, awaiting follow-up.
+    pub fn set_pending_price_tx(&mut self, tx_id: Uuid, product_name: String) {
+        self.last_transaction_without_price = Some((tx_id, product_name));
+        self.touch();
+    }
+
+    /// Take the pending no-price transaction (clears it).
+    pub fn take_pending_price_tx(&mut self) -> Option<(Uuid, String)> {
+        let result = self.last_transaction_without_price.take();
+        self.touch();
+        result
     }
 
     fn touch(&mut self) {
